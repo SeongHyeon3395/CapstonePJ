@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { env } from '../config/env';
 import { supabase } from '../config/supabase';
+import { addCollectLog } from './collectLogService';
 import { analyzeNewsByKeyword } from './newsService';
 
 let timer: NodeJS.Timeout | null = null;
@@ -111,11 +112,46 @@ async function collectOnce(): Promise<void> {
       `[scheduler] tick: selected=${selectedKeywords.join(', ')} (window=${env.autoCollectRecentWindowHours}h, cap=${env.autoCollectMaxPerKeywordPerWindow})`,
     );
 
-    for (const keyword of selectedKeywords) {
-      await analyzeNewsByKeyword(keyword, {
-        targetCount: env.autoCollectTargetPerRun,
-        publishedAfter: new Date('2026-01-01T00:00:00.000Z'),
+    if (selectedKeywords.length === 0) {
+      addCollectLog({
+        timestamp: new Date().toISOString(),
+        source: 'scheduler',
+        keyword: '-',
+        requestedCount: env.autoCollectTargetPerRun,
+        addedCount: 0,
+        status: 'skipped',
+        message: '수집 대상 키워드가 없어 이번 tick은 건너뜀',
       });
+    }
+
+    for (const keyword of selectedKeywords) {
+      try {
+        const result = await analyzeNewsByKeyword(keyword, {
+          targetCount: env.autoCollectTargetPerRun,
+          publishedAfter: new Date('2026-01-01T00:00:00.000Z'),
+        });
+
+        addCollectLog({
+          timestamp: new Date().toISOString(),
+          source: 'scheduler',
+          keyword,
+          requestedCount: env.autoCollectTargetPerRun,
+          addedCount: result.total,
+          status: 'success',
+          message: `${result.total}건 수집 완료`,
+        });
+      } catch (error) {
+        addCollectLog({
+          timestamp: new Date().toISOString(),
+          source: 'scheduler',
+          keyword,
+          requestedCount: env.autoCollectTargetPerRun,
+          addedCount: 0,
+          status: 'failed',
+          message: error instanceof Error ? error.message : String(error),
+        });
+        throw error;
+      }
     }
   } catch (error) {
     console.error('[scheduler] auto collect failed:', error);
@@ -144,4 +180,79 @@ export function startAutoCollectScheduler(): void {
   timer = setInterval(() => {
     void collectOnce();
   }, intervalMs);
+}
+
+export async function runManualCollectTicks(tickCount: number, targetPerRun = 1): Promise<{
+  requestedTicks: number;
+  executedTicks: number;
+  totalAdded: number;
+}> {
+  const requestedTicks = Math.max(1, Math.min(30, Math.floor(tickCount)));
+  const safeTargetPerRun = Math.max(1, Math.min(20, Math.floor(targetPerRun)));
+
+  let executedTicks = 0;
+  let totalAdded = 0;
+
+  for (let i = 0; i < requestedTicks; i += 1) {
+    const allKeywords = loadKeywordCatalog();
+    const counts = await getRecentKeywordCounts(env.autoCollectRecentWindowHours);
+    const selectedKeywords = pickPrioritizedKeywords(
+      allKeywords,
+      counts,
+      env.autoCollectKeywordsPerTick,
+      env.autoCollectMaxPerKeywordPerWindow,
+    );
+
+    if (selectedKeywords.length === 0) {
+      addCollectLog({
+        timestamp: new Date().toISOString(),
+        source: 'manual-test',
+        keyword: '-',
+        requestedCount: safeTargetPerRun,
+        addedCount: 0,
+        status: 'skipped',
+        message: '수집 대상 키워드가 없어 수동 수집을 건너뜀',
+      });
+      executedTicks += 1;
+      continue;
+    }
+
+    for (const keyword of selectedKeywords) {
+      try {
+        const result = await analyzeNewsByKeyword(keyword, {
+          targetCount: safeTargetPerRun,
+          publishedAfter: new Date('2026-01-01T00:00:00.000Z'),
+        });
+
+        totalAdded += result.total;
+        addCollectLog({
+          timestamp: new Date().toISOString(),
+          source: 'manual-test',
+          keyword,
+          requestedCount: safeTargetPerRun,
+          addedCount: result.total,
+          status: 'success',
+          message: `${result.total}건 수집 완료`,
+        });
+      } catch (error) {
+        addCollectLog({
+          timestamp: new Date().toISOString(),
+          source: 'manual-test',
+          keyword,
+          requestedCount: safeTargetPerRun,
+          addedCount: 0,
+          status: 'failed',
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    executedTicks += 1;
+  }
+
+  return {
+    requestedTicks,
+    executedTicks,
+    totalAdded,
+  };
 }

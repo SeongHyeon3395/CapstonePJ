@@ -22,14 +22,14 @@ type HomeScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'M
 
 export default function HomeScreen() {
   const PAGE_SIZE = 100;
-  const ALL_CATEGORY = '전체';
-  const INLINE_CATEGORY_LIMIT = 5;
+  const VISIBLE_CHIP_LIMIT = 4;
   const navigation = useNavigation<HomeScreenNavigationProp>();
   const [keyword, setKeyword] = useState('');
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [loadingLabel, setLoadingLabel] = useState('뉴스를 가져오는 중...');
-  const [selectedCategory, setSelectedCategory] = useState(ALL_CATEGORY);
+  const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
+  const [showAllSelectedCategories, setShowAllSelectedCategories] = useState(false);
   const [categoryModalVisible, setCategoryModalVisible] = useState(false);
   const [cursorCreatedAt, setCursorCreatedAt] = useState<string | undefined>(undefined);
   const [cursorId, setCursorId] = useState<string | undefined>(undefined);
@@ -66,34 +66,47 @@ export default function HomeScreen() {
       }
     });
 
-    return [ALL_CATEGORY, ...Array.from(keywords).sort((a, b) => a.localeCompare(b, 'ko-KR'))];
-  }, [ALL_CATEGORY, feed]);
+    return Array.from(keywords).sort((a, b) => a.localeCompare(b, 'ko-KR'));
+  }, [feed]);
 
   const filteredFeed = useMemo(() => {
-    if (selectedCategory === ALL_CATEGORY) {
+    if (selectedCategories.length === 0) {
       return feed;
     }
-    return feed.filter((item) => item.keyword === selectedCategory);
-  }, [ALL_CATEGORY, feed, selectedCategory]);
+    return feed.filter((item) => selectedCategories.includes(item.keyword));
+  }, [feed, selectedCategories]);
 
-  const inlineCategoryOptions = useMemo(() => {
-    if (categoryOptions.length <= INLINE_CATEGORY_LIMIT) {
-      return categoryOptions;
+  const visibleSelectedCategories = useMemo(() => {
+    if (showAllSelectedCategories) {
+      return selectedCategories;
     }
+    return selectedCategories.slice(0, VISIBLE_CHIP_LIMIT);
+  }, [VISIBLE_CHIP_LIMIT, selectedCategories, showAllSelectedCategories]);
 
-    const sliced = categoryOptions.slice(0, INLINE_CATEGORY_LIMIT);
-    if (selectedCategory !== ALL_CATEGORY && !sliced.includes(selectedCategory)) {
-      sliced[INLINE_CATEGORY_LIMIT - 1] = selectedCategory;
-    }
-    return sliced;
-  }, [ALL_CATEGORY, INLINE_CATEGORY_LIMIT, categoryOptions, selectedCategory]);
+  const hiddenSelectedCount = Math.max(0, selectedCategories.length - VISIBLE_CHIP_LIMIT);
 
   useEffect(() => {
-    if (selectedCategory === ALL_CATEGORY) return;
-    if (!categoryOptions.includes(selectedCategory)) {
-      setSelectedCategory(ALL_CATEGORY);
+    setSelectedCategories((prev) => prev.filter((category) => categoryOptions.includes(category)));
+  }, [categoryOptions]);
+
+  useEffect(() => {
+    if (selectedCategories.length <= VISIBLE_CHIP_LIMIT && showAllSelectedCategories) {
+      setShowAllSelectedCategories(false);
     }
-  }, [ALL_CATEGORY, categoryOptions, selectedCategory]);
+  }, [VISIBLE_CHIP_LIMIT, selectedCategories.length, showAllSelectedCategories]);
+
+  const toggleCategorySelection = (category: string) => {
+    setSelectedCategories((prev) => {
+      if (prev.includes(category)) {
+        return prev.filter((item) => item !== category);
+      }
+      return [...prev, category];
+    });
+  };
+
+  const removeCategory = (category: string) => {
+    setSelectedCategories((prev) => prev.filter((item) => item !== category));
+  };
 
   const loadRecentArticles = async () => {
     setLoadingLabel('데이터베이스의 전체 기사를 가져오는 중...');
@@ -171,6 +184,11 @@ export default function HomeScreen() {
     }
   };
 
+  const handleShowAll = async () => {
+    setKeyword('');
+    await loadRecentArticles();
+  };
+
   const handleArticlePress = (articleId: string, articleKeyword: string) => {
     navigation.navigate('Detail', { keyword: articleKeyword, articleId });
   };
@@ -218,51 +236,75 @@ export default function HomeScreen() {
           <Ionicons name="trending-up-outline" size={16} color="#4B5563" />
           <Text style={styles.sectionTitle}>뉴스 기사</Text>
         </View>
-        <TouchableOpacity onPress={loadRecentArticles}>
-          <Text style={styles.resetText}>새로고침</Text>
-        </TouchableOpacity>
+        <View style={styles.sectionRight}>
+          {currentQuery.trim().length > 0 && (
+            <TouchableOpacity style={styles.showAllBtn} onPress={handleShowAll}>
+              <Text style={styles.showAllBtnText}>전체 보기</Text>
+            </TouchableOpacity>
+          )}
+          <TouchableOpacity onPress={loadRecentArticles}>
+            <Text style={styles.resetText}>새로고침</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       <View style={styles.categoryWrap}>
         <View style={styles.categoryHeaderRow}>
           <Text style={styles.categoryLabel}>카테고리</Text>
           <View style={styles.categoryActionsRow}>
-            {selectedCategory !== ALL_CATEGORY && (
+            {selectedCategories.length > 0 && (
               <TouchableOpacity
                 style={styles.categoryActionBtn}
-                onPress={() => setSelectedCategory(ALL_CATEGORY)}
+                onPress={() => setSelectedCategories([])}
                 activeOpacity={0.85}
               >
                 <Text style={styles.categoryActionBtnText}>초기화</Text>
               </TouchableOpacity>
             )}
-            {categoryOptions.length > INLINE_CATEGORY_LIMIT && (
+            <TouchableOpacity
+              style={styles.categoryActionBtn}
+              onPress={() => setCategoryModalVisible(true)}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.categoryActionBtnText}>+ 카테고리 추가</Text>
+            </TouchableOpacity>
+            {hiddenSelectedCount > 0 && (
               <TouchableOpacity
                 style={styles.categoryActionBtn}
-                onPress={() => setCategoryModalVisible(true)}
+                onPress={() => setShowAllSelectedCategories((prev) => !prev)}
                 activeOpacity={0.85}
               >
-                <Text style={styles.categoryActionBtnText}>+ 더보기</Text>
+                <Text style={styles.categoryActionBtnText}>
+                  {showAllSelectedCategories ? '접기' : `더보기 +${hiddenSelectedCount}`}
+                </Text>
               </TouchableOpacity>
             )}
           </View>
         </View>
 
-        <View style={styles.categoryCompactRow}>
-          {inlineCategoryOptions.map((item) => {
-            const active = item === selectedCategory;
-            return (
-              <TouchableOpacity
-                key={item}
-                style={[styles.categoryChip, active && styles.categoryChipActive]}
-                onPress={() => setSelectedCategory(item)}
-                activeOpacity={0.8}
-              >
-                <Text style={[styles.categoryChipText, active && styles.categoryChipTextActive]} numberOfLines={1}>{item}</Text>
-              </TouchableOpacity>
-            );
-          })}
-        </View>
+        {selectedCategories.length > 0 ? (
+          <View style={styles.categoryCompactRow}>
+            {visibleSelectedCategories.map((item) => (
+              <View key={item} style={styles.selectedCategoryChipWrap}>
+                <TouchableOpacity
+                  style={styles.selectedCategoryChip}
+                  activeOpacity={0.9}
+                >
+                  <Text style={styles.selectedCategoryChipText} numberOfLines={1}>{item}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.selectedChipRemoveBtn}
+                  onPress={() => removeCategory(item)}
+                  hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}
+                >
+                  <Text style={styles.selectedChipRemoveBtnText}>x</Text>
+                </TouchableOpacity>
+              </View>
+            ))}
+          </View>
+        ) : (
+          <Text style={styles.noCategoryText}>추가된 카테고리가 없습니다. + 카테고리 추가로 선택해 주세요.</Text>
+        )}
       </View>
 
       {loading && (
@@ -286,9 +328,9 @@ export default function HomeScreen() {
         ListEmptyComponent={
           <View style={styles.emptyWrap}>
             <Text style={styles.emptyText}>
-              {selectedCategory === ALL_CATEGORY
+              {selectedCategories.length === 0
                 ? '아직 분석된 뉴스가 없습니다. 키워드를 검색해 분석을 시작해보세요.'
-                : `${selectedCategory} 카테고리 뉴스가 없습니다. 다른 카테고리를 선택해보세요.`}
+                : `선택한 카테고리(${selectedCategories.join(', ')})에 해당하는 뉴스가 없습니다.`}
             </Text>
           </View>
         }
@@ -328,22 +370,32 @@ export default function HomeScreen() {
               showsVerticalScrollIndicator={false}
               ItemSeparatorComponent={() => <View style={styles.modalItemSeparator} />}
               renderItem={({ item }) => {
-                const active = item === selectedCategory;
+                const active = selectedCategories.includes(item);
                 return (
                   <TouchableOpacity
                     style={[styles.modalItem, active && styles.modalItemActive]}
                     onPress={() => {
-                      setSelectedCategory(item);
-                      setCategoryModalVisible(false);
+                      toggleCategorySelection(item);
                     }}
                     activeOpacity={0.85}
                   >
                     <Text style={[styles.modalItemText, active && styles.modalItemTextActive]}>{item}</Text>
-                    {active && <Ionicons name="checkmark-circle" size={18} color="#2563EB" />}
+                    {active ? (
+                      <Ionicons name="checkmark-circle" size={18} color="#2563EB" />
+                    ) : (
+                      <Ionicons name="add-circle-outline" size={18} color="#9CA3AF" />
+                    )}
                   </TouchableOpacity>
                 );
               }}
             />
+
+            <TouchableOpacity
+              style={styles.modalDoneBtn}
+              onPress={() => setCategoryModalVisible(false)}
+            >
+              <Text style={styles.modalDoneBtnText}>완료</Text>
+            </TouchableOpacity>
           </View>
         </View>
       </Modal>
@@ -423,6 +475,24 @@ const styles = StyleSheet.create({
     color: '#111827',
     fontWeight: '600',
   },
+  sectionRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  showAllBtn: {
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+    backgroundColor: '#EFF6FF',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+  },
+  showAllBtnText: {
+    color: '#1D4ED8',
+    fontSize: 12,
+    fontWeight: '700',
+  },
   resetText: {
     color: '#2563EB',
     fontWeight: '600',
@@ -482,29 +552,48 @@ const styles = StyleSheet.create({
   categoryCompactRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    flexWrap: 'nowrap',
+    flexWrap: 'wrap',
+    rowGap: 8,
   },
-  categoryChip: {
-    borderWidth: 1,
-    borderColor: '#D1D5DB',
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+  noCategoryText: {
+    fontSize: 12,
+    color: '#6B7280',
+  },
+  selectedCategoryChipWrap: {
     marginRight: 8,
-    backgroundColor: '#FFFFFF',
-    maxWidth: 92,
+    marginBottom: 8,
+    position: 'relative',
   },
-  categoryChipActive: {
-    backgroundColor: '#2563EB',
-    borderColor: '#2563EB',
+  selectedCategoryChip: {
+    borderWidth: 1,
+    borderColor: '#60A5FA',
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    backgroundColor: '#EFF6FF',
+    maxWidth: 120,
   },
-  categoryChipText: {
+  selectedCategoryChipText: {
     fontSize: 12,
     fontWeight: '600',
-    color: '#374151',
+    color: '#1D4ED8',
   },
-  categoryChipTextActive: {
+  selectedChipRemoveBtn: {
+    position: 'absolute',
+    top: -6,
+    right: -6,
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    backgroundColor: '#DC2626',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  selectedChipRemoveBtnText: {
     color: '#FFFFFF',
+    fontSize: 9,
+    fontWeight: '700',
+    lineHeight: 10,
   },
   modalBackdrop: {
     flex: 1,
@@ -559,6 +648,18 @@ const styles = StyleSheet.create({
   },
   modalItemTextActive: {
     color: '#1D4ED8',
+  },
+  modalDoneBtn: {
+    marginTop: 10,
+    backgroundColor: '#2563EB',
+    borderRadius: 10,
+    alignItems: 'center',
+    paddingVertical: 10,
+  },
+  modalDoneBtnText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '700',
   },
   itemSeparator: {
     height: 12,

@@ -1,5 +1,7 @@
 import type { Request, Response } from 'express';
 import { analyzeNewsByKeyword, getArticleById, getRecentAnalyzedNews, getStatsByKeyword } from '../services/newsService';
+import { getCollectLogs } from '../services/collectLogService';
+import { runManualCollectTicks } from '../services/schedulerService';
 
 export async function analyzeNewsController(req: Request, res: Response): Promise<void> {
   const keyword = String(req.query.keyword ?? '').trim();
@@ -81,6 +83,39 @@ export async function articleByIdController(req: Request, res: Response): Promis
   } catch (error) {
     const detail = formatErrorDetail(error);
     res.status(500).json({ message: '기사 조회 중 오류가 발생했습니다.', detail });
+  }
+}
+
+export async function collectLogsController(req: Request, res: Response): Promise<void> {
+  const limitRaw = Number(req.query.limit ?? 7);
+  const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(50, Math.floor(limitRaw))) : 7;
+
+  try {
+    const logs = getCollectLogs(limit);
+    res.json({
+      total: logs.length,
+      logs,
+    });
+  } catch (error) {
+    const detail = formatErrorDetail(error);
+    res.status(500).json({ message: '수집 로그 조회 중 오류가 발생했습니다.', detail });
+  }
+}
+
+export async function collectTestRunController(req: Request, res: Response): Promise<void> {
+  const countRaw = Number(req.query.count ?? req.body?.count ?? 7);
+  const count = Number.isFinite(countRaw) ? Math.max(1, Math.min(30, Math.floor(countRaw))) : 7;
+
+  try {
+    const result = await runManualCollectTicks(count, 1);
+    const logs = getCollectLogs(count);
+    res.json({
+      ...result,
+      logs,
+    });
+  } catch (error) {
+    const detail = formatErrorDetail(error);
+    res.status(500).json({ message: '수동 수집 실행 중 오류가 발생했습니다.', detail });
   }
 }
 

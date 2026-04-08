@@ -88,6 +88,28 @@ export interface RecentNewsPage {
   articles: Article[];
 }
 
+export interface CollectLogEntry {
+  timestamp: string;
+  source: 'scheduler' | 'manual-test';
+  keyword: string;
+  requestedCount: number;
+  addedCount: number;
+  status: 'success' | 'failed' | 'skipped';
+  message: string;
+}
+
+interface CollectLogsResponse {
+  total: number;
+  logs: CollectLogEntry[];
+}
+
+interface CollectTestRunResponse {
+  requestedTicks: number;
+  executedTicks: number;
+  totalAdded: number;
+  logs: CollectLogEntry[];
+}
+
 /**
  * [API 1] 뉴스 분석 요청
  * GET /api/news?keyword={keyword}&targetCount=500&sinceYear=2026
@@ -219,6 +241,28 @@ export async function getArticleById(articleId: string): Promise<Article | null>
     return response.data;
   } catch (error) {
     console.error('getArticleById error:', error);
+    return null;
+  }
+}
+
+export async function getCollectLogs(limit = 7): Promise<CollectLogEntry[]> {
+  try {
+    const response = await api.get<CollectLogsResponse>('/news/collect/logs', {
+      params: { limit },
+    });
+    return response.data.logs ?? [];
+  } catch (error) {
+    console.error('getCollectLogs error:', error);
+    return [];
+  }
+}
+
+export async function runCollectTestRun(count = 7): Promise<CollectTestRunResponse | null> {
+  try {
+    const response = await api.post<CollectTestRunResponse>(`/news/collect/test-run?count=${count}`);
+    return response.data;
+  } catch (error) {
+    console.error('runCollectTestRun error:', error);
     return null;
   }
 }
