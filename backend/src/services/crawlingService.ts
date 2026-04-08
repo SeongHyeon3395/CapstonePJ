@@ -1,14 +1,32 @@
 import axios from 'axios';
+import { Readability } from '@mozilla/readability';
+import { JSDOM } from 'jsdom';
 import { naverApi } from '../config/naver';
 import type { NaverNewsItem } from '../types/news';
-import { extractMainContent, normalizeWhitespace, stripHtml } from '../utils/text';
+import { normalizeWhitespace, stripHtml } from '../utils/text';
 
 export interface CrawledArticleCandidate {
   keyword: string;
   title: string;
   url: string;
-  press?: string;
+  source?: string;
   content: string;
+  publishedAt?: string;
+}
+
+export interface NewsLinkCandidate {
+  keyword: string;
+  title: string;
+  url: string;
+  source?: string;
+  publishedAt?: string;
+}
+
+interface CollectArticleOptions {
+  targetCount?: number;
+  publishedAfter?: Date;
+  existingUrls?: Set<string>;
+  prefetchedLinks?: NewsLinkCandidate[];
 }
 
 function parsePressName(url: string): string | undefined {
@@ -20,11 +38,12 @@ function parsePressName(url: string): string | undefined {
   }
 }
 
-export async function fetchNaverNews(keyword: string, display = 30): Promise<NaverNewsItem[]> {
+export async function fetchNaverNews(keyword: string, display = 100, start = 1): Promise<NaverNewsItem[]> {
   const { data } = await naverApi.get<{ items: NaverNewsItem[] }>('/news.json', {
     params: {
       query: keyword,
       display,
+      start,
       sort: 'date',
     },
   });
@@ -32,49 +51,133 @@ export async function fetchNaverNews(keyword: string, display = 30): Promise<Nav
   return data.items ?? [];
 }
 
+function parsePublishedDate(raw?: string): string | undefined {
+  if (!raw) {
+    return undefined;
+  }
+
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) {
+    return undefined;
+  }
+
+  return parsed.toISOString();
+}
+
+function isAfterThreshold(dateIso?: string, threshold?: Date): boolean {
+  if (!threshold || !dateIso) {
+    return true;
+  }
+
+  return new Date(dateIso).getTime() >= threshold.getTime();
+}
+
 async function crawlArticleContent(url: string): Promise<string> {
   const { data } = await axios.get<string>(url, {
-    timeout: 12000,
+    timeout: 8000,
     headers: {
-      'User-Agent': 'Mozilla/5.0',
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36',
     },
     responseType: 'text',
   });
 
-  return extractMainContent(data);
-}
-
-export async function collectArticles(keyword: string): Promise<CrawledArticleCandidate[]> {
-  const items = await fetchNaverNews(keyword, 30);
-  const unique = new Map<string, NaverNewsItem>();
-
-  for (const item of items) {
-    const url = item.originallink || item.link;
-    if (!url || unique.has(url)) {
-      continue;
-    }
-    unique.set(url, item);
+  const dom = new JSDOM(data, { url });
+  const article = new Readability(dom.window.document).parse();
+  if (!article?.textContent) {
+    return '';
   }
 
+  return normalizeWhitespace(article.textContent);
+}
+
+export async function fetchArticleContentByUrl(url: string): Promise<string> {
+  return crawlArticleContent(url);
+}
+
+export async function collectArticles(keyword: string, options?: CollectArticleOptions): Promise<CrawledArticleCandidate[]> {
+  const links = options?.prefetchedLinks ?? await collectNewsLinks(keyword, options);
+
   const results: CrawledArticleCandidate[] = [];
-  for (const [url, item] of unique.entries()) {
+  for (const link of links) {
+    if (options?.existingUrls?.has(link.url)) {
+      continue;
+    }
+
     try {
-      const content = await crawlArticleContent(url);
+      const content = await crawlArticleContent(link.url);
       if (content.length < 60) {
         continue;
       }
 
       results.push({
         keyword,
-        title: normalizeWhitespace(stripHtml(item.title)),
-        url,
-        press: parsePressName(url),
+        title: link.title,
+        url: link.url,
+        source: link.source,
         content,
+        publishedAt: link.publishedAt,
       });
+
+      if (results.length >= Math.max(1, Math.min(500, options?.targetCount ?? 100))) {
+        break;
+      }
     } catch {
       continue;
     }
   }
 
   return results;
+}
+
+export async function collectNewsLinks(keyword: string, options?: CollectArticleOptions): Promise<NewsLinkCandidate[]> {
+  const targetCount = Math.max(1, Math.min(500, options?.targetCount ?? 100));
+  const maxPages = Math.ceil(targetCount / 100);
+
+  const unique = new Map<string, NaverNewsItem>();
+  for (let page = 0; page < maxPages; page += 1) {
+    const start = page * 100 + 1;
+    const items = await fetchNaverNews(keyword, 100, start);
+    for (const item of items) {
+      const url = item.originallink || item.link;
+      if (!url || unique.has(url)) {
+        continue;
+      }
+
+      if (options?.existingUrls?.has(url)) {
+        continue;
+      }
+
+      const publishedIso = parsePublishedDate(item.pubDate);
+      if (!isAfterThreshold(publishedIso, options?.publishedAfter)) {
+        continue;
+      }
+
+      unique.set(url, item);
+    }
+
+    if (unique.size >= targetCount) {
+      break;
+    }
+
+    if (items.length < 100) {
+      break;
+    }
+  }
+
+  const links: NewsLinkCandidate[] = [];
+  for (const [url, item] of unique.entries()) {
+    links.push({
+      keyword,
+      title: normalizeWhitespace(stripHtml(item.title)),
+      url,
+      source: parsePressName(url) ?? '출처 미상',
+      publishedAt: parsePublishedDate(item.pubDate),
+    });
+
+    if (links.length >= targetCount) {
+      break;
+    }
+  }
+
+  return links;
 }

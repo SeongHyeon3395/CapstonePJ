@@ -1,55 +1,94 @@
 import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
 
 interface AggroMeterProps {
-  score: number;
+  score: number; // 0-100
 }
 
-export function AggroMeter({ score }: AggroMeterProps) {
-  const clamped = Math.max(0, Math.min(100, score));
-  const barColor = clamped < 40 ? '#C62828' : clamped < 70 ? '#F39C12' : '#2E7D32';
+export default function AggroMeter({ score }: AggroMeterProps) {
+  const getColor = () => {
+    if (score >= 70) return '#10B981';
+    if (score >= 40) return '#F59E0B';
+    return '#EF4444';
+  };
+
+  const getLabel = () => {
+    if (score >= 70) return '신뢰도 높음';
+    if (score >= 40) return '보통';
+    return '어그로 의심';
+  };
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>어그로 미터</Text>
+    <View>
+      {/* Progress Bar Background */}
       <View style={styles.track}>
-        <View style={[styles.fill, { width: `${clamped}%`, backgroundColor: barColor }]} />
+        {/* Progress Bar Fill */}
+        <View
+          style={[styles.fill, { width: `${score}%`, backgroundColor: getColor() }]}
+        >
+          {score >= 20 && (
+            <Text style={styles.fillText}>{score}%</Text>
+          )}
+        </View>
       </View>
-      <Text style={styles.label}>제목과 본문의 내용 일치도가 {clamped}%입니다.</Text>
+
+      {/* Score Display if too small */}
+      {score < 20 && (
+        <Text style={styles.lowScoreText}>{score}%</Text>
+      )}
+
+      {/* Label and Explanation */}
+      <View style={styles.infoBox}>
+        <Text style={styles.infoTitle}>
+          {getLabel()}
+        </Text>
+        <Text style={styles.infoText}>
+          제목과 본문의 내용 일치도가 {score}%입니다.
+          {score < 40 && ' 제목이 본문 내용을 과장했을 가능성이 있습니다.'}
+          {score >= 70 && ' 제목이 본문 내용을 잘 반영하고 있습니다.'}
+        </Text>
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    backgroundColor: '#F7F5EE',
-    borderRadius: 18,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: '#D9D5C7',
-    marginBottom: 16,
-  },
-  title: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#1D1A15',
-    marginBottom: 10,
-  },
   track: {
-    height: 14,
-    backgroundColor: '#ECE7D8',
+    height: 32,
+    backgroundColor: '#E5E7EB',
     borderRadius: 999,
     overflow: 'hidden',
-    marginBottom: 10,
   },
   fill: {
     height: '100%',
-    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  label: {
+  fillText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  lowScoreText: {
+    marginTop: 4,
+    fontSize: 12,
+    color: '#374151',
+  },
+  infoBox: {
+    marginTop: 12,
+    padding: 12,
+    backgroundColor: '#F9FAFB',
+    borderRadius: 10,
+  },
+  infoTitle: {
     fontSize: 14,
-    color: '#3E3528',
-    fontWeight: '500',
+    fontWeight: '600',
+    color: '#1F2937',
+    marginBottom: 4,
+  },
+  infoText: {
+    fontSize: 14,
+    color: '#4B5563',
     lineHeight: 20,
   },
 });

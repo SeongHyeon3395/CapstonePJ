@@ -1,144 +1,143 @@
 import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
-import Svg, { Circle } from 'react-native-svg';
-import type { NewsStatsResponse } from '../types/news';
+import { View, Text, StyleSheet } from 'react-native';
+
+interface StanceStats {
+  total_analyzed?: number;
+  total: number;
+  agree_count: number;
+  agree_percent: number;
+  oppose_count: number;
+  oppose_percent: number;
+  neutral_count: number;
+  neutral_percent: number;
+  summary?: string;
+  sentiment?: {
+    positive: { count: number; percent: number; reason: string };
+    negative: { count: number; percent: number; reason: string };
+  };
+}
 
 interface StanceChartProps {
-  stats: NewsStatsResponse;
+  stats: StanceStats;
 }
 
-const SIZE = 180;
-const STROKE_WIDTH = 26;
-const RADIUS = (SIZE - STROKE_WIDTH) / 2;
-const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
+export default function StanceChart({ stats }: StanceChartProps) {
+  const fallbackPositive = Math.round((stats.agree_percent + stats.neutral_percent * 0.5) * 10) / 10;
+  const fallbackNegative = Math.max(0, Math.round((100 - fallbackPositive) * 10) / 10);
 
-function segmentLength(percent: number) {
-  return (Math.max(0, Math.min(100, percent)) / 100) * CIRCUMFERENCE;
-}
+  const positive = {
+    count: stats.sentiment?.positive.count ?? stats.agree_count,
+    percent: stats.sentiment?.positive.percent ?? fallbackPositive,
+    reason: stats.sentiment?.positive.reason ?? '긍정 관점의 통합 근거가 아직 생성되지 않았습니다.',
+  };
 
-export function StanceChart({ stats }: StanceChartProps) {
-  const agreeLen = segmentLength(stats.agree_percent);
-  const opposeLen = segmentLength(stats.oppose_percent);
-  const neutralLen = segmentLength(stats.neutral_percent);
+  const negative = {
+    count: stats.sentiment?.negative.count ?? stats.oppose_count,
+    percent: stats.sentiment?.negative.percent ?? fallbackNegative,
+    reason: stats.sentiment?.negative.reason ?? '부정 관점의 통합 근거가 아직 생성되지 않았습니다.',
+  };
 
-  const agreeOffset = 0;
-  const opposeOffset = agreeLen;
-  const neutralOffset = agreeLen + opposeLen;
+  const rows = [
+    { key: '긍정적', count: positive.count, percent: positive.percent, color: '#2563EB' },
+    { key: '부정적', count: negative.count, percent: negative.percent, color: '#EF4444' },
+  ];
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>입장 분포</Text>
-      <View style={styles.chartWrapper}>
-        <Svg width={SIZE} height={SIZE}>
-          <Circle
-            cx={SIZE / 2}
-            cy={SIZE / 2}
-            r={RADIUS}
-            stroke="#E7E2D3"
-            strokeWidth={STROKE_WIDTH}
-            fill="transparent"
-          />
-          <Circle
-            cx={SIZE / 2}
-            cy={SIZE / 2}
-            r={RADIUS}
-            stroke="#1E824C"
-            strokeWidth={STROKE_WIDTH}
-            fill="transparent"
-            strokeDasharray={`${agreeLen} ${CIRCUMFERENCE}`}
-            strokeDashoffset={-agreeOffset}
-            transform={`rotate(-90 ${SIZE / 2} ${SIZE / 2})`}
-          />
-          <Circle
-            cx={SIZE / 2}
-            cy={SIZE / 2}
-            r={RADIUS}
-            stroke="#C0392B"
-            strokeWidth={STROKE_WIDTH}
-            fill="transparent"
-            strokeDasharray={`${opposeLen} ${CIRCUMFERENCE}`}
-            strokeDashoffset={-opposeOffset}
-            transform={`rotate(-90 ${SIZE / 2} ${SIZE / 2})`}
-          />
-          <Circle
-            cx={SIZE / 2}
-            cy={SIZE / 2}
-            r={RADIUS}
-            stroke="#5F6D7A"
-            strokeWidth={STROKE_WIDTH}
-            fill="transparent"
-            strokeDasharray={`${neutralLen} ${CIRCUMFERENCE}`}
-            strokeDashoffset={-neutralOffset}
-            transform={`rotate(-90 ${SIZE / 2} ${SIZE / 2})`}
-          />
-        </Svg>
-        <View style={styles.centerLabel}>
-          <Text style={styles.centerTotal}>{stats.total}</Text>
-          <Text style={styles.centerText}>총 기사</Text>
+    <View style={styles.wrap}>
+      {rows.map((row) => (
+        <View key={row.key} style={styles.rowWrap}>
+          <View style={styles.rowHeader}>
+            <Text style={styles.rowLabel}>{row.key}</Text>
+            <Text style={styles.rowValue}>{row.count}건  {row.percent.toFixed(1)}%</Text>
+          </View>
+          <View style={styles.track}>
+            <View style={[styles.fill, { width: `${Math.max(0, Math.min(100, row.percent))}%`, backgroundColor: row.color }]} />
+          </View>
+        </View>
+      ))}
+
+      <View style={styles.summaryBox}>
+        <Text style={styles.summaryTitle}>총 {stats.total_analyzed ?? stats.total}건 분석</Text>
+        <Text style={styles.summaryText}>
+          긍정 {positive.count}건 / 부정 {negative.count}건
+        </Text>
+        <View style={styles.reasonCard}>
+          <Text style={styles.reasonLabel}>긍정적 핵심 이유</Text>
+          <Text style={styles.reasonText}>{positive.reason}</Text>
+        </View>
+        <View style={styles.reasonCard}>
+          <Text style={[styles.reasonLabel, { color: '#B91C1C' }]}>부정적 핵심 이유</Text>
+          <Text style={styles.reasonText}>{negative.reason}</Text>
         </View>
       </View>
-
-      <View style={styles.legendRow}>
-        <Text style={styles.legend}>찬성 {stats.agree_percent.toFixed(1)}%</Text>
-        <Text style={styles.legend}>반대 {stats.oppose_percent.toFixed(1)}%</Text>
-        <Text style={styles.legend}>중립 {stats.neutral_percent.toFixed(1)}%</Text>
-      </View>
-
-      <Text style={styles.countText}>
-        총 {stats.total}건 분석 (찬성 {stats.agree_count}건 / 반대 {stats.oppose_count}건 / 중립 {stats.neutral_count}건)
-      </Text>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    backgroundColor: '#F7F5EE',
-    borderRadius: 18,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: '#D9D5C7',
-    marginBottom: 16,
+  wrap: {
+    gap: 14,
   },
-  title: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#1D1A15',
-    marginBottom: 12,
+  rowWrap: {
+    gap: 8,
   },
-  chartWrapper: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 12,
-  },
-  centerLabel: {
-    position: 'absolute',
-    alignItems: 'center',
-  },
-  centerTotal: {
-    fontSize: 22,
-    fontWeight: '800',
-    color: '#1D1A15',
-  },
-  centerText: {
-    fontSize: 14,
-    color: '#5B5447',
-    fontWeight: '600',
-  },
-  legendRow: {
+  rowHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 10,
+    alignItems: 'center',
   },
-  legend: {
-    fontSize: 14,
-    color: '#3E3528',
-    fontWeight: '600',
+  rowLabel: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#111827',
   },
-  countText: {
-    fontSize: 14,
-    color: '#3E3528',
+  rowValue: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#1F2937',
+  },
+  track: {
+    height: 18,
+    backgroundColor: '#E5E7EB',
+    borderRadius: 999,
+    overflow: 'hidden',
+  },
+  fill: {
+    height: '100%',
+  },
+  summaryBox: {
+    padding: 16,
+    backgroundColor: '#EEF2FF',
+    borderRadius: 10,
+  },
+  summaryTitle: {
+    fontSize: 20,
+    color: '#1F2937',
+    fontWeight: '700',
+  },
+  summaryText: {
+    marginTop: 8,
+    fontSize: 15,
+    color: '#4B5563',
     lineHeight: 20,
-    fontWeight: '500',
+  },
+  reasonCard: {
+    marginTop: 12,
+    padding: 12,
+    borderRadius: 10,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#DBEAFE',
+  },
+  reasonLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#1D4ED8',
+    marginBottom: 4,
+  },
+  reasonText: {
+    fontSize: 14,
+    color: '#374151',
+    lineHeight: 20,
   },
 });

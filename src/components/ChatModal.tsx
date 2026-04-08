@@ -1,227 +1,258 @@
 import React, { useState } from 'react';
 import {
-  ActivityIndicator,
-  Modal,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
   View,
+  Text,
+  Modal,
+  TextInput,
+  TouchableOpacity,
+  FlatList,
+  KeyboardAvoidingView,
+  Platform,
+  ActivityIndicator,
+  StyleSheet,
 } from 'react-native';
-import { askArticleQuestion } from '../api/newsApi';
+import { askQuestion } from '../api/chatApi';
 
-interface ChatMessage {
+interface Message {
   id: string;
-  role: 'user' | 'assistant';
   text: string;
+  isUser: boolean;
+  timestamp: Date;
 }
 
 interface ChatModalProps {
-  articleId: string;
   visible: boolean;
   onClose: () => void;
+  articleId: string;
 }
 
-export function ChatModal({ articleId, visible, onClose }: ChatModalProps) {
-  const [question, setQuestion] = useState('');
+export default function ChatModal({ visible, onClose, articleId }: ChatModalProps) {
+  const [messages, setMessages] = useState<Message[]>([
+    {
+      id: '0',
+      text: '지금 보고 있는 기사에 대해서만 질문해 주세요. 기사와 무관한 질문은 답변할 수 없습니다.',
+      isUser: false,
+      timestamp: new Date(),
+    },
+  ]);
+  const [inputText, setInputText] = useState('');
   const [loading, setLoading] = useState(false);
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
 
-  const submit = async () => {
-    const trimmed = question.trim();
-    if (!trimmed || loading) {
-      return;
-    }
+  const handleSend = async () => {
+    if (!inputText.trim() || loading) return;
 
-    const userMessage: ChatMessage = {
-      id: `${Date.now()}-u`,
-      role: 'user',
-      text: trimmed,
+    const userMessage: Message = {
+      id: Date.now().toString(),
+      text: inputText,
+      isUser: true,
+      timestamp: new Date(),
     };
 
     setMessages((prev) => [...prev, userMessage]);
-    setQuestion('');
+    setInputText('');
     setLoading(true);
 
     try {
-      const response = await askArticleQuestion({
-        article_id: articleId,
-        question: trimmed,
-      });
+      const response = await askQuestion(articleId, inputText);
+      
+      const aiMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        text: response.answer,
+        isUser: false,
+        timestamp: new Date(),
+      };
 
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `${Date.now()}-a`,
-          role: 'assistant',
-          text: response.answer,
-        },
-      ]);
-    } catch {
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `${Date.now()}-e`,
-          role: 'assistant',
-          text: '질문 처리 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.',
-        },
-      ]);
+      setMessages((prev) => [...prev, aiMessage]);
+    } catch (error) {
+      console.error('Failed to get answer:', error);
+      const errorMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        text: '죄송합니다. 답변을 생성하는 중 오류가 발생했습니다.',
+        isUser: false,
+        timestamp: new Date(),
+      };
+      setMessages((prev) => [...prev, errorMessage]);
     } finally {
       setLoading(false);
     }
   };
 
-  return (
-    <Modal visible={visible} animationType="slide" transparent>
-      <View style={styles.overlay}>
-        <View style={styles.sheet}>
-          <View style={styles.header}>
-            <Text style={styles.headerTitle}>기사 Q&A</Text>
-            <Pressable onPress={onClose}>
-              <Text style={styles.closeText}>닫기</Text>
-            </Pressable>
-          </View>
-
-          <ScrollView style={styles.body} contentContainerStyle={styles.bodyContent}>
-            {messages.length === 0 ? (
-              <Text style={styles.emptyText}>기사 내용 기반으로 궁금한 점을 물어보세요.</Text>
-            ) : (
-              messages.map((message) => (
-                <View
-                  key={message.id}
-                  style={[
-                    styles.bubble,
-                    message.role === 'user' ? styles.userBubble : styles.assistantBubble,
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.bubbleText,
-                      message.role === 'user' ? styles.userText : styles.assistantText,
-                    ]}
-                  >
-                    {message.text}
-                  </Text>
-                </View>
-              ))
-            )}
-            {loading ? <ActivityIndicator size="small" color="#8B2E20" /> : null}
-          </ScrollView>
-
-          <View style={styles.inputRow}>
-            <TextInput
-              style={styles.input}
-              placeholder="질문을 입력하세요"
-              placeholderTextColor="#7A6F5E"
-              value={question}
-              onChangeText={setQuestion}
-              multiline
-            />
-            <Pressable style={styles.sendButton} onPress={submit}>
-              <Text style={styles.sendText}>전송</Text>
-            </Pressable>
-          </View>
-        </View>
+  const renderMessage = ({ item }: { item: Message }) => (
+    <View style={[styles.messageRow, item.isUser ? styles.userRow : styles.aiRow]}>
+      <View
+        style={[
+          styles.bubble,
+          item.isUser ? styles.userBubble : styles.aiBubble,
+        ]}
+      >
+        <Text
+          style={[styles.bubbleText, item.isUser ? styles.userText : styles.aiText]}
+        >
+          {item.text}
+        </Text>
       </View>
+    </View>
+  );
+
+  return (
+    <Modal
+      visible={visible}
+      animationType="slide"
+      onRequestClose={onClose}
+    >
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={styles.container}
+      >
+        {/* Header */}
+        <View style={styles.header}>
+          <Text style={styles.headerTitle}>기사에 대해 질문하기</Text>
+          <TouchableOpacity onPress={onClose}>
+            <Text style={styles.closeText}>×</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Messages */}
+        <FlatList
+          data={messages}
+          keyExtractor={(item) => item.id}
+          renderItem={renderMessage}
+          contentContainerStyle={{ padding: 16 }}
+          inverted={false}
+        />
+
+        {loading && (
+          <View style={styles.loadingRow}>
+            <ActivityIndicator size="small" color="#4F46E5" />
+            <Text style={styles.loadingText}>AI가 기사 내용을 바탕으로 답변을 작성 중입니다...</Text>
+          </View>
+        )}
+
+        {/* Input Bar */}
+        <View style={styles.inputRow}>
+          <TextInput
+            style={styles.input}
+            placeholder="질문을 입력하세요..."
+            value={inputText}
+            onChangeText={setInputText}
+            multiline
+            maxLength={500}
+          />
+          <TouchableOpacity
+            style={[
+              styles.sendButton,
+              loading || !inputText.trim() ? styles.sendButtonDisabled : styles.sendButtonEnabled,
+            ]}
+            onPress={handleSend}
+            disabled={loading || !inputText.trim()}
+          >
+            <Text style={styles.sendButtonText}>전송</Text>
+          </TouchableOpacity>
+        </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
-  overlay: {
+  container: {
     flex: 1,
-    backgroundColor: 'rgba(18, 14, 9, 0.35)',
-    justifyContent: 'flex-end',
-  },
-  sheet: {
-    height: '84%',
-    backgroundColor: '#FCFAF4',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 18,
+    backgroundColor: '#FFFFFF',
   },
   header: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 12,
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
   },
   headerTitle: {
     fontSize: 18,
-    fontWeight: '800',
-    color: '#1D1A15',
+    fontWeight: '700',
+    color: '#111827',
   },
   closeText: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#8B2E20',
+    fontSize: 28,
+    color: '#374151',
+    lineHeight: 28,
   },
-  body: {
-    flex: 1,
+  messageRow: {
     marginBottom: 12,
   },
-  bodyContent: {
-    gap: 10,
-    paddingBottom: 8,
+  userRow: {
+    alignItems: 'flex-end',
   },
-  emptyText: {
-    fontSize: 14,
-    color: '#5B5447',
-    lineHeight: 20,
+  aiRow: {
+    alignItems: 'flex-start',
   },
   bubble: {
-    borderRadius: 14,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    maxWidth: '84%',
+    maxWidth: '80%',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 16,
   },
   userBubble: {
-    alignSelf: 'flex-end',
-    backgroundColor: '#8B2E20',
+    backgroundColor: '#4F46E5',
   },
-  assistantBubble: {
-    alignSelf: 'flex-start',
-    backgroundColor: '#ECE7D8',
+  aiBubble: {
+    backgroundColor: '#E5E7EB',
   },
   bubbleText: {
-    fontSize: 14,
-    lineHeight: 20,
-    fontWeight: '500',
+    fontSize: 16,
+    lineHeight: 22,
   },
   userText: {
     color: '#FFFFFF',
   },
-  assistantText: {
-    color: '#292318',
+  aiText: {
+    color: '#1F2937',
   },
   inputRow: {
     flexDirection: 'row',
-    alignItems: 'flex-end',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#E5E7EB',
+  },
+  loadingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: 8,
+    paddingHorizontal: 16,
+    paddingBottom: 8,
+  },
+  loadingText: {
+    color: '#4B5563',
+    fontSize: 13,
   },
   input: {
     flex: 1,
-    minHeight: 46,
-    maxHeight: 110,
-    backgroundColor: '#F3EFDE',
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    color: '#1D1A15',
-    fontSize: 14,
+    backgroundColor: '#F3F4F6',
+    borderRadius: 999,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    fontSize: 16,
+    color: '#111827',
+    maxHeight: 120,
   },
   sendButton: {
-    backgroundColor: '#8B2E20',
-    borderRadius: 12,
-    height: 46,
-    justifyContent: 'center',
+    marginLeft: 8,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     alignItems: 'center',
-    paddingHorizontal: 14,
+    justifyContent: 'center',
   },
-  sendText: {
+  sendButtonEnabled: {
+    backgroundColor: '#4F46E5',
+  },
+  sendButtonDisabled: {
+    backgroundColor: '#D1D5DB',
+  },
+  sendButtonText: {
     color: '#FFFFFF',
     fontSize: 14,
     fontWeight: '700',

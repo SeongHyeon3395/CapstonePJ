@@ -1,0 +1,88 @@
+import type { Article } from '../api/newsApi';
+
+export const sampleArticles: Article[] = [
+  {
+    id: 'sample-1',
+    keyword: 'AI 윤리',
+    title: 'AI 윤리 법안, 국회 통과 임박… 산업계 반발 거세',
+    content:
+      'AI 기술의 윤리적 사용을 규제하는 법안이 국회를 통과할 것으로 예상되며, 산업계는 규제가 과도할 수 있다는 우려를 제기하고 있습니다.',
+    url: 'https://news.naver.com',
+    source: '한국경제',
+    stance: '반대',
+    reason: '산업계 부담 증가를 우려하는 근거 문장이 반복적으로 제시됩니다.',
+    similarity_score: 75,
+    published_at: '2026-04-07T00:00:00.000Z',
+    created_at: '2026-04-07T00:00:00.000Z',
+  },
+  {
+    id: 'sample-2',
+    keyword: 'AI 규제',
+    title: 'AI 규제 필요성 강조… 전문가들 "안전장치 시급"',
+    content:
+      'AI 전문가들은 기술 발전과 함께 정책적 규제가 필수적이라고 강조하며, 사회적 피해를 줄이기 위한 안전장치 도입이 필요하다고 주장했습니다.',
+    url: 'https://news.naver.com',
+    source: '조선일보',
+    stance: '찬성',
+    reason: '안전장치 시급성을 강조하는 전문가 발언이 기사 핵심 근거입니다.',
+    similarity_score: 82,
+    published_at: '2026-04-07T00:00:00.000Z',
+    created_at: '2026-04-07T00:00:00.000Z',
+  },
+  {
+    id: 'sample-3',
+    keyword: '전기차',
+    title: '전기차 보급 확대에도 충전 인프라 부족 여전',
+    content:
+      '전기차 판매는 증가했지만 충전 인프라 확충 속도가 수요를 따라가지 못하면서 사용자 불편이 이어지고 있습니다.',
+    url: 'https://news.naver.com',
+    source: 'SBS 뉴스',
+    stance: '중립',
+    reason: '인프라 확충 지연과 보급 확대를 함께 제시해 중립적 톤을 유지합니다.',
+    similarity_score: 68,
+    published_at: '2026-04-07T00:00:00.000Z',
+    created_at: '2026-04-07T00:00:00.000Z',
+  },
+  {
+    id: 'sample-4',
+    keyword: '전기차 배터리',
+    title: '전기차 배터리 화재, 당신도 위험할 수 있다?',
+    content:
+      '최근 전기차 배터리 화재 사례가 증가하면서 안전성에 대한 우려가 커지고 있습니다. 다만 통계상 발생률과 실제 위험도는 분리해서 봐야 합니다.',
+    url: 'https://news.naver.com',
+    source: '온라인 뉴스',
+    stance: '반대',
+    reason: '사고 사례를 반복 제시해 공포를 유도하는 서술이 근거로 확인됩니다.',
+    similarity_score: 32,
+    published_at: '2026-04-07T00:00:00.000Z',
+    created_at: '2026-04-07T00:00:00.000Z',
+  },
+  {
+    id: 'sample-5',
+    keyword: '원격근무',
+    title: '원격근무 생산성, 사무실 근무와 큰 차이 없어',
+    content:
+      '다수 기업의 생산성 데이터를 분석한 결과, 원격근무와 사무실 근무 간 성과 차이가 크지 않다는 연구가 발표됐습니다.',
+    url: 'https://news.naver.com',
+    source: '연합뉴스',
+    stance: '찬성',
+    reason: '실증 데이터로 원격근무 효율성을 뒷받침하는 문장이 포함됩니다.',
+    similarity_score: 88,
+    published_at: '2026-04-06T00:00:00.000Z',
+    created_at: '2026-04-07T00:00:00.000Z',
+  },
+  {
+    id: 'sample-6',
+    keyword: '재생에너지',
+    title: '재생에너지 확대 정책, 전력요금 인상 논란 재점화',
+    content:
+      '재생에너지 전환 가속화 정책이 전력요금 변동성과 연결될 수 있다는 지적이 나오며 사회적 논쟁이 커지고 있습니다.',
+    url: 'https://news.naver.com',
+    source: 'JTBC',
+    stance: '중립',
+    reason: '정책 효과와 비용 부담을 함께 다뤄 특정 입장 편향이 낮습니다.',
+    similarity_score: 71,
+    published_at: '2026-04-05T00:00:00.000Z',
+    created_at: '2026-04-07T00:00:00.000Z',
+  },
+];
