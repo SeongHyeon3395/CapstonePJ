@@ -99,10 +99,11 @@ async function getRecentAnalyzedNews(limit = 50, keyword, cursorCreatedAt, curso
         .order('id', { ascending: false })
         .limit(safeLimit + 1);
     if (keywordValue) {
-        query = query.ilike('keyword', `%${keywordValue}%`);
+        query = query.or(`keyword.ilike.%${keywordValue}%,title.ilike.%${keywordValue}%`);
     }
     if (cursorCreatedAtValue && cursorIdValue) {
-        query = query.or(`created_at.lt.${cursorCreatedAtValue},and(created_at.eq.${cursorCreatedAtValue},id.lt.${cursorIdValue})`);
+        // Keep keyset pagination stable while allowing keyword/title OR search in one request.
+        query = query.lt('created_at', cursorCreatedAtValue);
     }
     ({ data, error } = await query);
     const errorText = error ? JSON.stringify(error) : '';
@@ -114,10 +115,10 @@ async function getRecentAnalyzedNews(limit = 50, keyword, cursorCreatedAt, curso
             .order('id', { ascending: false })
             .limit(safeLimit + 1);
         if (keywordValue) {
-            fallbackQuery = fallbackQuery.ilike('keyword', `%${keywordValue}%`);
+            fallbackQuery = fallbackQuery.or(`keyword.ilike.%${keywordValue}%,title.ilike.%${keywordValue}%`);
         }
         if (cursorCreatedAtValue && cursorIdValue) {
-            fallbackQuery = fallbackQuery.or(`created_at.lt.${cursorCreatedAtValue},and(created_at.eq.${cursorCreatedAtValue},id.lt.${cursorIdValue})`);
+            fallbackQuery = fallbackQuery.lt('created_at', cursorCreatedAtValue);
         }
         ({ data, error } = await fallbackQuery);
     }
