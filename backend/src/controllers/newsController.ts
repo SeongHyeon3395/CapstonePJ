@@ -1,7 +1,8 @@
 import type { Request, Response } from 'express';
+import { env } from '../config/env';
 import { analyzeNewsByKeyword, getArticleById, getRecentAnalyzedNews, getStatsByKeyword } from '../services/newsService';
 import { getCollectLogs } from '../services/collectLogService';
-import { runManualCollectTicks } from '../services/schedulerService';
+import { getSchedulerStatus, runExternalCollectOnce, runManualCollectTicks } from '../services/schedulerService';
 
 export async function analyzeNewsController(req: Request, res: Response): Promise<void> {
   const keyword = String(req.query.keyword ?? '').trim();
@@ -116,6 +117,47 @@ export async function collectTestRunController(req: Request, res: Response): Pro
   } catch (error) {
     const detail = formatErrorDetail(error);
     res.status(500).json({ message: '수동 수집 실행 중 오류가 발생했습니다.', detail });
+  }
+}
+
+export async function collectStatusController(_req: Request, res: Response): Promise<void> {
+  try {
+    const status = getSchedulerStatus();
+    res.json(status);
+  } catch (error) {
+    const detail = formatErrorDetail(error);
+    res.status(500).json({ message: '스케줄러 상태 조회 중 오류가 발생했습니다.', detail });
+  }
+}
+
+export async function collectTriggerController(req: Request, res: Response): Promise<void> {
+  const configuredToken = env.autoCollectTriggerToken.trim();
+  if (!configuredToken) {
+    res.status(503).json({
+      message: 'AUTO_COLLECT_TRIGGER_TOKEN이 설정되지 않아 외부 트리거가 비활성화되어 있습니다.',
+    });
+    return;
+  }
+
+  const authHeader = String(req.headers.authorization ?? '').trim();
+  const bearerToken = authHeader.toLowerCase().startsWith('bearer ')
+    ? authHeader.slice(7).trim()
+    : '';
+  const queryToken = String(req.query.token ?? '').trim();
+  const bodyToken = String(req.body?.token ?? '').trim();
+  const providedToken = bearerToken || queryToken || bodyToken;
+
+  if (!providedToken || providedToken !== configuredToken) {
+    res.status(401).json({ message: '유효한 트리거 토큰이 필요합니다.' });
+    return;
+  }
+
+  try {
+    const result = await runExternalCollectOnce();
+    res.json(result);
+  } catch (error) {
+    const detail = formatErrorDetail(error);
+    res.status(500).json({ message: '외부 수집 트리거 실행 중 오류가 발생했습니다.', detail });
   }
 }
 

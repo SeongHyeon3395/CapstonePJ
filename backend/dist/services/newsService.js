@@ -1,6 +1,8 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.analyzeNewsByKeyword = analyzeNewsByKeyword;
+exports.getRecentAnalyzedNews = getRecentAnalyzedNews;
+exports.getArticleById = getArticleById;
 exports.getStatsByKeyword = getStatsByKeyword;
 exports.getArticleContentById = getArticleContentById;
 const supabase_1 = require("../config/supabase");
@@ -81,6 +83,110 @@ async function analyzeNewsByKeyword(keyword, options) {
         keyword,
         total: persisted.length,
         articles: persisted,
+    };
+}
+async function getRecentAnalyzedNews(limit = 50, keyword, cursorCreatedAt, cursorId) {
+    const safeLimit = Math.max(1, Math.min(500, Math.floor(limit)));
+    const keywordValue = String(keyword ?? '').trim();
+    const cursorCreatedAtValue = String(cursorCreatedAt ?? '').trim();
+    const cursorIdValue = String(cursorId ?? '').trim();
+    let data = null;
+    let error = null;
+    let query = supabase_1.supabase
+        .from('articles')
+        .select('id,keyword,title,url,stance,similarity_score,source,evidence,aggro_reason,published_at,created_at')
+        .order('created_at', { ascending: false })
+        .order('id', { ascending: false })
+        .limit(safeLimit + 1);
+    if (keywordValue) {
+        query = query.ilike('keyword', `%${keywordValue}%`);
+    }
+    if (cursorCreatedAtValue && cursorIdValue) {
+        query = query.or(`created_at.lt.${cursorCreatedAtValue},and(created_at.eq.${cursorCreatedAtValue},id.lt.${cursorIdValue})`);
+    }
+    ({ data, error } = await query);
+    const errorText = error ? JSON.stringify(error) : '';
+    if (error && (errorText.includes('source') || errorText.includes('evidence'))) {
+        let fallbackQuery = supabase_1.supabase
+            .from('articles')
+            .select('id,keyword,title,url,stance,similarity_score,aggro_reason,published_at,created_at')
+            .order('created_at', { ascending: false })
+            .order('id', { ascending: false })
+            .limit(safeLimit + 1);
+        if (keywordValue) {
+            fallbackQuery = fallbackQuery.ilike('keyword', `%${keywordValue}%`);
+        }
+        if (cursorCreatedAtValue && cursorIdValue) {
+            fallbackQuery = fallbackQuery.or(`created_at.lt.${cursorCreatedAtValue},and(created_at.eq.${cursorCreatedAtValue},id.lt.${cursorIdValue})`);
+        }
+        ({ data, error } = await fallbackQuery);
+    }
+    if (error) {
+        throw error;
+    }
+    const fetchedRows = (data ?? []);
+    const hasMore = fetchedRows.length > safeLimit;
+    const pageRows = hasMore ? fetchedRows.slice(0, safeLimit) : fetchedRows;
+    const articles = pageRows.map((row) => ({
+        ...row,
+        content: row.content ?? '',
+        evidence: row.evidence ?? row.aggro_reason,
+        source: row.source ?? parseSource(row.url),
+    }));
+    const last = articles.length > 0 ? articles[articles.length - 1] : null;
+    return {
+        total: articles.length,
+        limit: safeLimit,
+        has_more: hasMore,
+        next_cursor_created_at: hasMore ? (last?.created_at ?? null) : null,
+        next_cursor_id: hasMore ? (last?.id ?? null) : null,
+        articles,
+    };
+}
+async function getArticleById(articleId) {
+    let data = null;
+    let error = null;
+    ({ data, error } = await supabase_1.supabase
+        .from('articles')
+        .select('id,keyword,title,content,url,stance,similarity_score,source,evidence,aggro_reason,published_at,created_at')
+        .eq('id', articleId)
+        .maybeSingle());
+    const errorText = error ? JSON.stringify(error) : '';
+    if (error && (errorText.includes('source') || errorText.includes('evidence'))) {
+        ({ data, error } = await supabase_1.supabase
+            .from('articles')
+            .select('id,keyword,title,content,url,stance,similarity_score,aggro_reason,published_at,created_at')
+            .eq('id', articleId)
+            .maybeSingle());
+    }
+    if (error) {
+        throw error;
+    }
+    if (!data) {
+        return null;
+    }
+    const row = data;
+    let content = String(row.content ?? '').trim();
+    if (content.length < 60 && row.url) {
+        try {
+            const crawled = (await (0, crawlingService_1.fetchArticleContentByUrl)(row.url)).trim();
+            if (crawled.length >= 60) {
+                content = crawled;
+                await supabase_1.supabase
+                    .from('articles')
+                    .update({ content: crawled })
+                    .eq('id', row.id);
+            }
+        }
+        catch {
+            // Keep existing content when recrawling fails.
+        }
+    }
+    return {
+        ...row,
+        content,
+        evidence: row.evidence ?? row.aggro_reason,
+        source: row.source ?? parseSource(row.url),
     };
 }
 async function upsertArticles(rows) {
@@ -207,6 +313,24 @@ async function getStatsByKeyword(keyword) {
         },
         evidence_list: evidenceList,
     };
+    const binary = toBinarySentimentCounts(agreeCount, opposeCount, neutralCount, unclassifiedCount);
+    const sentimentReasons = await (0, aiService_1.summarizeSentimentReasons)(keyword, evidenceList.map((item) => ({
+        title: item.title,
+        stance: item.stance,
+        evidence: item.evidence,
+    })));
+    stats.sentiment = {
+        positive: {
+            count: binary.positive,
+            percent: (0, math_1.toFixedPercent)(binary.positive, total),
+            reason: sentimentReasons.positive,
+        },
+        negative: {
+            count: binary.negative,
+            percent: (0, math_1.toFixedPercent)(binary.negative, total),
+            reason: sentimentReasons.negative,
+        },
+    };
     stats.stats = stats.statistics;
     stats.total_count = total;
     stats.percentages = {
@@ -226,6 +350,23 @@ async function getStatsByKeyword(keyword) {
 }
 function countStance(rows, target) {
     return rows.filter((row) => row.stance === target).length;
+}
+function toBinarySentimentCounts(agree, oppose, neutral, unclassified) {
+    const extra = neutral + unclassified;
+    const base = agree + oppose;
+    const total = agree + oppose + extra;
+    if (total === 0) {
+        return { positive: 0, negative: 0 };
+    }
+    if (base === 0) {
+        const positive = Math.round(extra / 2);
+        return { positive, negative: total - positive };
+    }
+    const positive = agree + Math.round((extra * agree) / base);
+    return {
+        positive,
+        negative: Math.max(0, total - positive),
+    };
 }
 async function getArticleContentById(articleId) {
     const { data, error } = await supabase_1.supabase

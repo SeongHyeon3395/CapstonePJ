@@ -72,4 +72,5 @@ export const env = {
   autoCollectKeywords: getStringList('AUTO_COLLECT_KEYWORDS', ['의대증원']),
   autoCollectKeywordFileEnabled: getBoolean('AUTO_COLLECT_KEYWORD_FILE_ENABLED', true),
   autoCollectKeywordFilePath: process.env.AUTO_COLLECT_KEYWORD_FILE_PATH ?? 'keywords/master_keywords.txt',
+  autoCollectTriggerToken: getEnv('AUTO_COLLECT_TRIGGER_TOKEN', true),
 };

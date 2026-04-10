@@ -4,6 +4,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.fetchNaverNews = fetchNaverNews;
+exports.fetchArticleContentByUrl = fetchArticleContentByUrl;
 exports.collectArticles = collectArticles;
 exports.collectNewsLinks = collectNewsLinks;
 const axios_1 = __importDefault(require("axios"));
@@ -61,6 +62,9 @@ async function crawlArticleContent(url) {
         return '';
     }
     return (0, text_1.normalizeWhitespace)(article.textContent);
+}
+async function fetchArticleContentByUrl(url) {
+    return crawlArticleContent(url);
 }
 async function collectArticles(keyword, options) {
     const links = options?.prefetchedLinks ?? await collectNewsLinks(keyword, options);

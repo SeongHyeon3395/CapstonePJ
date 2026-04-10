@@ -21,6 +21,35 @@
 - Build: npm run build
 - Production: npm start
 
+## 2-1) Keep Auto-Collect Running 24/7
+
+`AUTO_COLLECT_INTERVAL_MINUTES=360` (6 hours) works only while the backend process is alive.
+To keep it running when the mobile app is closed, run backend as an always-on process.
+
+1. Install PM2 globally
+  - npm install -g pm2
+2. Build backend
+  - npm run build
+3. Start PM2 process
+  - npm run pm2:start
+4. Save PM2 process list (optional but recommended)
+  - npm run pm2:save
+
+Useful PM2 commands:
+- Restart: `npm run pm2:restart`
+- Logs: `npm run pm2:logs`
+
+## 2-2) External Cron Trigger (Optional)
+
+If you have an external scheduler (GitHub Actions, cron-job.org, etc.), trigger one collection tick via API:
+
+- Endpoint: `POST /api/news/collect/trigger`
+- Auth: `Authorization: Bearer <AUTO_COLLECT_TRIGGER_TOKEN>`
+- Env: set `AUTO_COLLECT_TRIGGER_TOKEN` in `.env`
+
+Status check endpoint:
+- `GET /api/news/collect/status`
+
 ## 3) API
 
 - GET /api/news?keyword=...
@@ -29,6 +58,10 @@
   - Collects Naver news, crawls content, computes similarity score, labels stance, stores in Supabase, and returns analyzed articles.
 - GET /api/news/stats?keyword=...
   - Reads stored articles, counts stance by exact count, and returns count-based percentages.
+- GET /api/news/collect/status
+  - Returns scheduler runtime status (running/last run/next run).
+- POST /api/news/collect/trigger
+  - Runs one protected external collection tick.
 - POST /api/chat/ask
   - Body: { "article_id": "...", "question": "..." }
   - Answers strictly from article content.

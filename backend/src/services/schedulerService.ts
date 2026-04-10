@@ -2,12 +2,35 @@ import fs from 'fs';
 import path from 'path';
 import { env } from '../config/env';
 import { supabase } from '../config/supabase';
-import { addCollectLog } from './collectLogService';
+import { addCollectLog, type CollectLogSource } from './collectLogService';
 import { analyzeNewsByKeyword } from './newsService';
 
 let timer: NodeJS.Timeout | null = null;
 let running = false;
 let cursor = 0;
+let lastRunAtIso: string | null = null;
+let lastSuccessAtIso: string | null = null;
+let lastErrorMessage: string | null = null;
+let nextRunAtEpochMs: number | null = null;
+
+export interface AutoCollectRunResult {
+  source: CollectLogSource;
+  selectedKeywords: string[];
+  totalAdded: number;
+  success: boolean;
+  error?: string;
+}
+
+export interface SchedulerStatus {
+  enabled: boolean;
+  started: boolean;
+  running: boolean;
+  intervalMinutes: number;
+  lastRunAt: string | null;
+  lastSuccessAt: string | null;
+  lastError: string | null;
+  nextRunAt: string | null;
+}
 
 function loadKeywordCatalog(): string[] {
   const fromEnv = env.autoCollectKeywords;
@@ -92,16 +115,28 @@ function pickPrioritizedKeywords(
   return pickKeywordsRoundRobin(ranked, size);
 }
 
-async function collectOnce(): Promise<void> {
+async function collectOnce(source: CollectLogSource = 'scheduler'): Promise<AutoCollectRunResult> {
   if (running) {
-    return;
+    return {
+      source,
+      selectedKeywords: [],
+      totalAdded: 0,
+      success: false,
+      error: '이미 수집 작업이 실행 중입니다.',
+    };
   }
 
   running = true;
+  const startedAt = new Date();
+  lastRunAtIso = startedAt.toISOString();
+
+  let totalAdded = 0;
+  let selectedKeywords: string[] = [];
+
   try {
     const allKeywords = loadKeywordCatalog();
     const counts = await getRecentKeywordCounts(env.autoCollectRecentWindowHours);
-    const selectedKeywords = pickPrioritizedKeywords(
+    selectedKeywords = pickPrioritizedKeywords(
       allKeywords,
       counts,
       env.autoCollectKeywordsPerTick,
@@ -115,7 +150,7 @@ async function collectOnce(): Promise<void> {
     if (selectedKeywords.length === 0) {
       addCollectLog({
         timestamp: new Date().toISOString(),
-        source: 'scheduler',
+        source,
         keyword: '-',
         requestedCount: env.autoCollectTargetPerRun,
         addedCount: 0,
@@ -130,10 +165,11 @@ async function collectOnce(): Promise<void> {
           targetCount: env.autoCollectTargetPerRun,
           publishedAfter: new Date('2026-01-01T00:00:00.000Z'),
         });
+        totalAdded += result.total;
 
         addCollectLog({
           timestamp: new Date().toISOString(),
-          source: 'scheduler',
+          source,
           keyword,
           requestedCount: env.autoCollectTargetPerRun,
           addedCount: result.total,
@@ -143,7 +179,7 @@ async function collectOnce(): Promise<void> {
       } catch (error) {
         addCollectLog({
           timestamp: new Date().toISOString(),
-          source: 'scheduler',
+          source,
           keyword,
           requestedCount: env.autoCollectTargetPerRun,
           addedCount: 0,
@@ -153,10 +189,31 @@ async function collectOnce(): Promise<void> {
         throw error;
       }
     }
+
+    lastSuccessAtIso = new Date().toISOString();
+    lastErrorMessage = null;
+    return {
+      source,
+      selectedKeywords,
+      totalAdded,
+      success: true,
+    };
   } catch (error) {
     console.error('[scheduler] auto collect failed:', error);
+    const message = error instanceof Error ? error.message : String(error);
+    lastErrorMessage = message;
+    return {
+      source,
+      selectedKeywords,
+      totalAdded,
+      success: false,
+      error: message,
+    };
   } finally {
     running = false;
+    if (timer) {
+      nextRunAtEpochMs = Date.now() + env.autoCollectIntervalMinutes * 60 * 1000;
+    }
   }
 }
 
@@ -177,9 +234,28 @@ export function startAutoCollectScheduler(): void {
   );
 
   void collectOnce();
+  nextRunAtEpochMs = Date.now() + intervalMs;
   timer = setInterval(() => {
     void collectOnce();
+    nextRunAtEpochMs = Date.now() + intervalMs;
   }, intervalMs);
+}
+
+export async function runExternalCollectOnce(): Promise<AutoCollectRunResult> {
+  return collectOnce('external-cron');
+}
+
+export function getSchedulerStatus(): SchedulerStatus {
+  return {
+    enabled: env.autoCollectEnabled,
+    started: timer !== null,
+    running,
+    intervalMinutes: env.autoCollectIntervalMinutes,
+    lastRunAt: lastRunAtIso,
+    lastSuccessAt: lastSuccessAtIso,
+    lastError: lastErrorMessage,
+    nextRunAt: nextRunAtEpochMs ? new Date(nextRunAtEpochMs).toISOString() : null,
+  };
 }
 
 export async function runManualCollectTicks(tickCount: number, targetPerRun = 1): Promise<{

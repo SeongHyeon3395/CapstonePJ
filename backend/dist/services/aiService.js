@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.createEmbedding = createEmbedding;
 exports.analyzeArticle = analyzeArticle;
 exports.summarizeStats = summarizeStats;
+exports.summarizeSentimentReasons = summarizeSentimentReasons;
 exports.answerFromArticle = answerFromArticle;
 const env_1 = require("../config/env");
 const openai_1 = require("../config/openai");
@@ -106,14 +107,65 @@ async function summarizeStats(keyword, stats) {
         return fallback;
     }
 }
+async function summarizeSentimentReasons(keyword, evidences) {
+    const fallback = {
+        positive: evidences.find((item) => item.stance === '찬성')?.evidence ||
+            '긍정적 관점의 근거가 충분하지 않아 추가 수집이 필요합니다.',
+        negative: evidences.find((item) => item.stance === '반대')?.evidence ||
+            '부정적 관점의 근거가 충분하지 않아 추가 수집이 필요합니다.',
+    };
+    if (evidences.length === 0) {
+        return fallback;
+    }
+    try {
+        const response = await openai_1.openai.chat.completions.create({
+            model: env_1.env.openaiChatModel,
+            temperature: 0.2,
+            response_format: { type: 'json_object' },
+            messages: [
+                {
+                    role: 'system',
+                    content: '너는 뉴스 근거를 2분류(긍정/부정)로 요약하는 분석가다. 제공된 evidence를 바탕으로 긍정 이유 1문장, 부정 이유 1문장을 JSON으로만 반환하라. 추측 금지.',
+                },
+                {
+                    role: 'user',
+                    content: JSON.stringify({
+                        keyword,
+                        evidences: evidences.slice(0, 40),
+                        format: {
+                            positive_reason: 'string',
+                            negative_reason: 'string',
+                        },
+                    }),
+                },
+            ],
+        });
+        const raw = response.choices[0]?.message?.content ?? '{}';
+        const parsed = JSON.parse(raw);
+        return {
+            positive: String(parsed.positive_reason ?? fallback.positive).trim(),
+            negative: String(parsed.negative_reason ?? fallback.negative).trim(),
+        };
+    }
+    catch {
+        return fallback;
+    }
+}
 async function answerFromArticle(content, question) {
+    const refusal = '해당 질문은 현재 보고 있는 기사와 관련이 없어 답변할 수 없습니다.';
     const response = await openai_1.openai.chat.completions.create({
         model: env_1.env.openaiChatModel,
         temperature: 0,
         messages: [
             {
                 role: 'system',
-                content: '주어진 기사 본문에서만 근거를 찾아 답하라. 본문 근거가 없으면 반드시 "알 수 없습니다"라고 답하라. 4문장 이내로 간결하게 답하라.',
+                content: [
+                    '너는 기사 전용 Q&A 도우미다.',
+                    '반드시 제공된 기사 본문에서만 근거를 찾아 답하라.',
+                    `질문이 기사와 무관하거나 기사 본문으로 답할 수 없으면 정확히 "${refusal}" 라고만 답하라.`,
+                    '외부 지식, 추측, 일반 상식 보충 설명은 금지한다.',
+                    '답변은 최대 4문장으로 간결하게 작성한다.',
+                ].join(' '),
             },
             {
                 role: 'user',
@@ -121,5 +173,9 @@ async function answerFromArticle(content, question) {
             },
         ],
     });
-    return response.choices[0]?.message?.content?.trim() || '알 수 없습니다';
+    const answer = response.choices[0]?.message?.content?.trim() || refusal;
+    if (!answer) {
+        return refusal;
+    }
+    return answer;
 }

@@ -1,4 +1,4 @@
-export type CollectLogSource = 'scheduler' | 'manual-test';
+export type CollectLogSource = 'scheduler' | 'manual-test' | 'external-cron';
 export type CollectLogStatus = 'success' | 'failed' | 'skipped';
 
 export interface CollectLogEntry {
