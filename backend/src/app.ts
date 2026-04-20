@@ -2,6 +2,7 @@ import cors from 'cors';
 import express from 'express';
 import { env } from './config/env';
 import { analyzeNewsController, newsStatsController } from './controllers/newsController';
+import { authRoutes } from './routes/authRoutes';
 import { chatRoutes } from './routes/chatRoutes';
 import { newsRoutes } from './routes/newsRoutes';
 import { startAutoCollectScheduler } from './services/schedulerService';
@@ -18,6 +19,7 @@ app.get('/health', (_req, res) => {
 app.get('/api/stats', newsStatsController);
 app.get('/api/analyze', analyzeNewsController);
 
+app.use('/api/auth', authRoutes);
 app.use('/api/news', newsRoutes);
 app.use('/api/chat', chatRoutes);
 

@@ -1,7 +1,5 @@
 import axios from 'axios';
-
-// TODO: 실제 백엔드 URL로 변경하세요
-const API_BASE_URL = 'http://10.0.2.2:3000/api';
+import { API_BASE_URL } from './baseUrl';
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -70,12 +68,33 @@ interface AnalyzeNewsResponse {
   articles: Article[];
 }
 
+export interface SimilarArticle extends Article {
+  match_percent: number;
+}
+
+export interface ManualAnalyzeRequest {
+  user_id: string;
+  input: string;
+}
+
+export interface ManualAnalyzeResponse {
+  keyword: string;
+  article: Article;
+  similar_articles: SimilarArticle[];
+  stats?: NewsStats;
+}
+
 interface RecentNewsResponse {
   total: number;
   limit: number;
   has_more: boolean;
   next_cursor_created_at: string | null;
   next_cursor_id: string | null;
+  articles: Article[];
+}
+
+interface UserHistoryResponse {
+  total: number;
   articles: Article[];
 }
 
@@ -90,7 +109,7 @@ export interface RecentNewsPage {
 
 export interface CollectLogEntry {
   timestamp: string;
-  source: 'scheduler' | 'manual-test';
+  source: 'scheduler' | 'external-cron';
   keyword: string;
   requestedCount: number;
   addedCount: number;
@@ -98,15 +117,19 @@ export interface CollectLogEntry {
   message: string;
 }
 
-interface CollectLogsResponse {
-  total: number;
-  logs: CollectLogEntry[];
+export interface CollectStatus {
+  enabled: boolean;
+  started: boolean;
+  running: boolean;
+  intervalMinutes: number;
+  lastRunAt: string | null;
+  lastSuccessAt: string | null;
+  lastError: string | null;
+  nextRunAt: string | null;
 }
 
-interface CollectTestRunResponse {
-  requestedTicks: number;
-  executedTicks: number;
-  totalAdded: number;
+interface CollectLogsResponse {
+  total: number;
   logs: CollectLogEntry[];
 }
 
@@ -116,8 +139,10 @@ interface CollectTestRunResponse {
  */
 export async function analyzeNews(keyword: string): Promise<Article[]> {
   try {
+    const sinceYear = Math.max(2000, new Date().getFullYear() - 1);
     const response = await api.get<AnalyzeNewsResponse>('/news', {
-      params: { keyword, targetCount: 500, sinceYear: 2026 },
+      params: { keyword, targetCount: 60, sinceYear },
+      timeout: 180000,
     });
     return response.data.articles;
   } catch (error) {
@@ -257,13 +282,58 @@ export async function getCollectLogs(limit = 7): Promise<CollectLogEntry[]> {
   }
 }
 
-export async function runCollectTestRun(count = 7): Promise<CollectTestRunResponse | null> {
+export async function getCollectStatus(): Promise<CollectStatus | null> {
   try {
-    const response = await api.post<CollectTestRunResponse>(`/news/collect/test-run?count=${count}`);
+    const response = await api.get<CollectStatus>('/news/collect/status');
     return response.data;
   } catch (error) {
-    console.error('runCollectTestRun error:', error);
+    console.error('getCollectStatus error:', error);
     return null;
+  }
+}
+
+export async function analyzeManualNews(payload: ManualAnalyzeRequest): Promise<ManualAnalyzeResponse> {
+  try {
+    const response = await api.post<ManualAnalyzeResponse>('/news/manual-analyze', payload, {
+      timeout: 180000,
+    });
+    return response.data;
+  } catch (error) {
+    if (axios.isAxiosError(error)) {
+      const code = String(error.response?.data?.code ?? '');
+      const message = String(error.response?.data?.message ?? '수동 기사 분석 중 오류가 발생했습니다.');
+      if (code === 'LINK_ACCESS_BLOCKED') {
+        throw new Error(message);
+      }
+      throw new Error(message);
+    }
+    throw error;
+  }
+}
+
+export async function getUserManualHistory(userId: string, limit = 50): Promise<Article[]> {
+  try {
+    const response = await api.get<UserHistoryResponse>('/news/manual-history', {
+      params: { user_id: userId, limit },
+      timeout: 20000,
+    });
+    return response.data.articles ?? [];
+  } catch (error) {
+    console.error('getUserManualHistory error:', error);
+    return [];
+  }
+}
+
+export async function resetAllManualHistory(userId: string): Promise<boolean> {
+  try {
+    await api.delete('/news/manual-history', {
+      params: { user_id: userId },
+      timeout: 20000,
+    });
+    return true;
+  } catch (error) {
+    console.error('resetAllManualHistory error:', error);
+    return false;
   }
 }
 

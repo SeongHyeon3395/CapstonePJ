@@ -9,7 +9,119 @@ const env_1 = require("../config/env");
 const openai_1 = require("../config/openai");
 const math_1 = require("../utils/math");
 const STANCE_VALUES = ['찬성', '반대', '중립', '분류불가'];
+const POSITIVE_STANCE_HINTS = ['찬성', '긍정', '호의', '지지', '우호', 'positive', 'pro'];
+const NEGATIVE_STANCE_HINTS = ['반대', '부정', '비판', '우려', '논란', 'negative', 'anti', 'con'];
+const NEUTRAL_STANCE_HINTS = ['중립', '보류', '혼재', 'neutral'];
+const POSITIVE_CUES = [
+    '개선', '효과', '지원', '확대', '증가', '강화', '회복', '성장', '해소', '기대', '긍정', '호평', '찬성',
+];
+const NEGATIVE_CUES = [
+    '우려', '논란', '비판', '반발', '갈등', '피해', '감소', '악화', '위험', '부작용', '부정', '반대', '문제',
+];
+function ensureOpenAiConfigured() {
+    if (!env_1.env.hasOpenAiKey) {
+        throw new Error('OPENAI_API_KEY가 설정되지 않아 AI 분석 기능을 사용할 수 없습니다. backend/.env를 확인해 주세요.');
+    }
+}
+function normalizeStance(raw) {
+    const value = String(raw ?? '').trim();
+    if (!value) {
+        return null;
+    }
+    if (STANCE_VALUES.includes(value)) {
+        return value;
+    }
+    const compact = value.toLowerCase().replace(/\s+/g, '');
+    if (POSITIVE_STANCE_HINTS.some((hint) => compact.includes(hint))) {
+        return '찬성';
+    }
+    if (NEGATIVE_STANCE_HINTS.some((hint) => compact.includes(hint))) {
+        return '반대';
+    }
+    if (NEUTRAL_STANCE_HINTS.some((hint) => compact.includes(hint))) {
+        return '중립';
+    }
+    if (compact.includes('분류불가') || compact.includes('불명') || compact.includes('unknown')) {
+        return '분류불가';
+    }
+    return null;
+}
+function countCueMatches(text, cues) {
+    const normalized = text.toLowerCase();
+    let score = 0;
+    for (const cue of cues) {
+        if (normalized.includes(cue.toLowerCase())) {
+            score += 1;
+        }
+    }
+    return score;
+}
+function inferStanceFromText(title, content) {
+    const text = `${title} ${content.slice(0, 2500)}`;
+    const positiveScore = countCueMatches(text, POSITIVE_CUES);
+    const negativeScore = countCueMatches(text, NEGATIVE_CUES);
+    if (positiveScore === 0 && negativeScore === 0) {
+        return '중립';
+    }
+    if (negativeScore > positiveScore) {
+        return '반대';
+    }
+    if (positiveScore > negativeScore) {
+        return '찬성';
+    }
+    return '중립';
+}
+function tokenizeForOverlap(text) {
+    return (text.match(/[0-9A-Za-z가-힣]{2,}/g) ?? []).map((token) => token.toLowerCase());
+}
+function estimateAggroIndex(title, content) {
+    const titleTokens = Array.from(new Set(tokenizeForOverlap(title))).filter((token) => token.length >= 2);
+    const contentTokens = new Set(tokenizeForOverlap(content.slice(0, 6000)));
+    if (titleTokens.length === 0) {
+        return 0;
+    }
+    let overlap = 0;
+    for (const token of titleTokens) {
+        if (contentTokens.has(token)) {
+            overlap += 1;
+        }
+    }
+    const ratio = overlap / titleTokens.length;
+    if (content.trim().length === 0) {
+        return 0;
+    }
+    const scaled = 15 + ratio * 80;
+    return (0, math_1.clampPercent)(scaled);
+}
+function tryParseJsonObject(raw) {
+    try {
+        return JSON.parse(raw);
+    }
+    catch {
+        const start = raw.indexOf('{');
+        const end = raw.lastIndexOf('}');
+        if (start >= 0 && end > start) {
+            try {
+                return JSON.parse(raw.slice(start, end + 1));
+            }
+            catch {
+                return {};
+            }
+        }
+        return {};
+    }
+}
+function pickNumeric(parsed, keys) {
+    for (const key of keys) {
+        const candidate = Number(parsed[key]);
+        if (Number.isFinite(candidate)) {
+            return candidate;
+        }
+    }
+    return null;
+}
 async function createEmbedding(text) {
+    ensureOpenAiConfigured();
     const input = text.slice(0, 6000);
     const response = await openai_1.openai.embeddings.create({
         model: env_1.env.openaiEmbedModel,
@@ -19,6 +131,7 @@ async function createEmbedding(text) {
     return response.data[0].embedding;
 }
 async function analyzeArticle(keyword, title, content) {
+    ensureOpenAiConfigured();
     const systemPrompt = [
         '# System Prompt (Role: Senior News Analyst)',
         '당신은 뉴스 데이터에서 객관적인 지표를 추출하는 전문가입니다.',
@@ -35,6 +148,8 @@ async function analyzeArticle(keyword, title, content) {
         '{"stance":"String","evidence":"String","aggro_index":Number,"summary":"String"}',
     ].join('\n');
     const userPrompt = `키워드: ${keyword}\n제목: ${title}\n본문: ${content.slice(0, 1500)}`;
+    const heuristicAggro = estimateAggroIndex(title, content);
+    const heuristicStance = inferStanceFromText(title, content);
     try {
         const response = await openai_1.openai.chat.completions.create({
             model: env_1.env.openaiChatModel,
@@ -46,13 +161,17 @@ async function analyzeArticle(keyword, title, content) {
             ],
         });
         const raw = response.choices[0]?.message?.content ?? '{}';
-        const parsed = JSON.parse(raw);
-        const stance = STANCE_VALUES.includes(parsed.stance) && parsed.stance !== '분류불가'
-            ? parsed.stance
-            : '중립';
-        const aggroIndex = (0, math_1.clampPercent)(Number(parsed.aggro_index ?? 0));
-        const evidence = String(parsed.evidence ?? '본문에서 명확한 근거 문장을 추출하지 못했습니다.').trim();
-        const summary = String(parsed.summary ?? '요약 생성 실패\n요약 생성 실패').trim();
+        const parsed = tryParseJsonObject(raw);
+        const normalizedStance = normalizeStance(String(parsed.stance ?? parsed.sentiment ?? ''));
+        const stance = normalizedStance && normalizedStance !== '분류불가'
+            ? normalizedStance
+            : heuristicStance;
+        const modelAggro = pickNumeric(parsed, ['aggro_index', 'aggroIndex', 'similarity_score', 'similarityScore']);
+        const aggroIndex = (0, math_1.clampPercent)(modelAggro !== null && modelAggro > 0 ? modelAggro : heuristicAggro);
+        const evidenceRaw = String(parsed.evidence ?? parsed.reason ?? '').trim();
+        const evidence = evidenceRaw || '본문에서 명확한 근거 문장을 추출하지 못했습니다.';
+        const summaryRaw = String(parsed.summary ?? parsed.short_summary ?? '').trim();
+        const summary = summaryRaw || '요약 생성 실패\n요약 생성 실패';
         return {
             stance,
             evidence,
@@ -62,14 +181,15 @@ async function analyzeArticle(keyword, title, content) {
     }
     catch {
         return {
-            stance: '중립',
+            stance: heuristicStance,
             evidence: 'AI 분석 중 오류가 발생해 근거 문장을 생성하지 못했습니다.',
             summary: '요약 생성 실패\n요약 생성 실패',
-            aggroIndex: 0,
+            aggroIndex: heuristicAggro,
         };
     }
 }
 async function summarizeStats(keyword, stats) {
+    ensureOpenAiConfigured();
     const fallback = [
         `'${keyword}' 이슈 기사 ${stats.total_analyzed}건 중 찬성 ${stats.statistics.agree.count}건, 반대 ${stats.statistics.oppose.count}건, 중립 ${stats.statistics.neutral.count}건입니다.`,
         '각 기사의 분류 근거(evidence)와 원문 URL을 함께 제공해 수치의 출처를 투명하게 확인할 수 있습니다.',
@@ -108,6 +228,7 @@ async function summarizeStats(keyword, stats) {
     }
 }
 async function summarizeSentimentReasons(keyword, evidences) {
+    ensureOpenAiConfigured();
     const fallback = {
         positive: evidences.find((item) => item.stance === '찬성')?.evidence ||
             '긍정적 관점의 근거가 충분하지 않아 추가 수집이 필요합니다.',

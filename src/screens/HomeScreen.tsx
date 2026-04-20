@@ -16,7 +16,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/RootNavigator';
 import NewsCard from '../components/NewsCard';
 import { useNewsStore } from '../store/newsStore';
-import { getRecentNews, searchRecentNews } from '../api/newsApi';
+import { analyzeNews, getRecentNews, searchRecentNews } from '../api/newsApi';
 
 type HomeScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'Main'>;
 
@@ -112,28 +112,12 @@ export default function HomeScreen() {
     setLoadingLabel('데이터베이스의 전체 기사를 가져오는 중...');
     setLoading(true);
     try {
-      let all: typeof feed = [];
-      let nextCreatedAt: string | undefined = undefined;
-      let nextId: string | undefined = undefined;
-      let more = true;
-
-      while (more) {
-        const page = await getRecentNews(PAGE_SIZE, nextCreatedAt, nextId);
-        all = mergeArticles(all, page.articles);
-        more = page.has_more;
-        nextCreatedAt = page.next_cursor_created_at ?? undefined;
-        nextId = page.next_cursor_id ?? undefined;
-
-        // Safety cap to avoid endless loops from malformed cursors.
-        if (all.length >= 5000) {
-          more = false;
-        }
-      }
-
-      setArticles(all);
-      setCursorCreatedAt(nextCreatedAt);
-      setCursorId(nextId);
-      setHasMore(false);
+      // Initial screen should load fast: fetch only the first page and rely on infinite scroll.
+      const page = await getRecentNews(PAGE_SIZE);
+      setArticles(page.articles);
+      setCursorCreatedAt(page.next_cursor_created_at ?? undefined);
+      setCursorId(page.next_cursor_id ?? undefined);
+      setHasMore(page.has_more && page.articles.length > 0);
       setCurrentQuery('');
     } catch (error) {
       console.error('Failed to load recent news:', error);
@@ -151,11 +135,18 @@ export default function HomeScreen() {
         ? await searchRecentNews(currentQuery, PAGE_SIZE, cursorCreatedAt, cursorId)
         : await getRecentNews(PAGE_SIZE, cursorCreatedAt, cursorId);
 
+      const nextCreatedAt = page.next_cursor_created_at ?? undefined;
+      const nextId = page.next_cursor_id ?? undefined;
+      const sameCursor = cursorCreatedAt === nextCreatedAt && cursorId === nextId;
       const merged = mergeArticles(feedRef.current, page.articles);
       setArticles(merged);
-      setCursorCreatedAt(page.next_cursor_created_at ?? undefined);
-      setCursorId(page.next_cursor_id ?? undefined);
-      setHasMore(page.has_more);
+      setCursorCreatedAt(nextCreatedAt);
+      setCursorId(nextId);
+      setHasMore(page.has_more && page.articles.length > 0 && !sameCursor);
+
+      if (sameCursor && page.has_more) {
+        console.warn('Pagination cursor did not advance. Stopping infinite scroll to avoid loop.');
+      }
     } catch (error) {
       console.error('Failed to load more news:', error);
     } finally {
@@ -167,9 +158,12 @@ export default function HomeScreen() {
     const trimmed = keyword.trim();
     if (!trimmed) return;
 
-    setLoadingLabel('키워드 뉴스를 가져오는 중...');
+    setLoadingLabel('키워드 뉴스를 분석하는 중...');
     setLoading(true);
     try {
+      // First trigger fresh collection/analysis so search reflects up-to-date articles.
+      await analyzeNews(trimmed);
+
       const page = await searchRecentNews(trimmed, PAGE_SIZE);
       setArticles(page.articles);
       setCursorCreatedAt(page.next_cursor_created_at ?? undefined);

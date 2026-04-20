@@ -1,7 +1,5 @@
 import axios from 'axios';
-
-// TODO: 실제 백엔드 URL로 변경하세요
-const API_BASE_URL = 'http://10.0.2.2:3000/api';
+import { API_BASE_URL } from './baseUrl';
 
 const api = axios.create({
   baseURL: API_BASE_URL,

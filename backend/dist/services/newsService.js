@@ -1,6 +1,10 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.LinkAccessBlockedError = void 0;
 exports.analyzeNewsByKeyword = analyzeNewsByKeyword;
+exports.analyzeManualArticle = analyzeManualArticle;
+exports.getUserAnalysisHistory = getUserAnalysisHistory;
+exports.clearUserAnalysisHistory = clearUserAnalysisHistory;
 exports.getRecentAnalyzedNews = getRecentAnalyzedNews;
 exports.getArticleById = getArticleById;
 exports.getStatsByKeyword = getStatsByKeyword;
@@ -17,6 +21,14 @@ function generateId() {
         return value.toString(16);
     });
 }
+const MANUAL_URL_PREFIX = 'manual://entry/';
+class LinkAccessBlockedError extends Error {
+    constructor(message = '링크 본문 접근이 차단되어 분석할 수 없습니다. 본문을 직접 붙여서 다시 시도해 주세요.') {
+        super(message);
+        this.name = 'LinkAccessBlockedError';
+    }
+}
+exports.LinkAccessBlockedError = LinkAccessBlockedError;
 async function getExistingUrlSet(urls) {
     if (urls.length === 0) {
         return new Set();
@@ -84,6 +96,233 @@ async function analyzeNewsByKeyword(keyword, options) {
         total: persisted.length,
         articles: persisted,
     };
+}
+function createManualUrl() {
+    return `${MANUAL_URL_PREFIX}${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
+}
+function looksLikeUrl(input) {
+    try {
+        const url = new URL(input);
+        return Boolean(url.protocol && url.hostname);
+    }
+    catch {
+        return false;
+    }
+}
+const KEYWORD_STOPWORDS = new Set([
+    '그리고', '그러나', '하지만', '대한', '관련', '에서', '으로', '했다', '한다', '위해', '대한민국',
+    '뉴스', '기사', '정부', '정책', '오늘', '이번', 'the', 'and', 'with', 'that', 'this', 'from', 'have',
+]);
+function extractKeywordFromText(text) {
+    const tokens = text.match(/[0-9A-Za-z가-힣]{2,}/g) ?? [];
+    const counts = new Map();
+    for (const token of tokens) {
+        const normalized = token.toLowerCase();
+        if (KEYWORD_STOPWORDS.has(normalized)) {
+            continue;
+        }
+        counts.set(token, (counts.get(token) ?? 0) + 1);
+    }
+    let best = '';
+    let bestCount = 0;
+    for (const [token, count] of counts.entries()) {
+        if (count > bestCount) {
+            best = token;
+            bestCount = count;
+        }
+    }
+    return best || '직접분석';
+}
+function mapHistoryRowToArticle(row) {
+    return {
+        id: row.id,
+        keyword: row.keyword,
+        title: row.title,
+        content: row.content,
+        url: row.url,
+        source: row.source,
+        stance: row.stance,
+        similarity_score: row.similarity_score,
+        evidence: row.evidence,
+        summary: row.summary,
+        aggro_reason: row.evidence,
+        created_at: row.created_at,
+    };
+}
+function inferTitleFromContent(content) {
+    const plain = (0, text_1.normalizeWhitespace)(content);
+    if (!plain) {
+        return '사용자 입력 기사';
+    }
+    const sentence = plain.split(/(?<=[.!?])\s+/)[0]?.trim() ?? plain;
+    return sentence.slice(0, 80);
+}
+function normalizeTokenSet(text) {
+    const tokens = text.match(/[0-9A-Za-z가-힣]{2,}/g) ?? [];
+    return new Set(tokens.map((token) => token.toLowerCase()));
+}
+function computeSimilarityPercent(baseText, candidateText) {
+    const a = normalizeTokenSet(baseText);
+    const b = normalizeTokenSet(candidateText);
+    if (a.size === 0 || b.size === 0) {
+        return 0;
+    }
+    let overlap = 0;
+    for (const token of a) {
+        if (b.has(token)) {
+            overlap += 1;
+        }
+    }
+    const precision = overlap / a.size;
+    const recall = overlap / b.size;
+    const f1 = precision + recall === 0 ? 0 : (2 * precision * recall) / (precision + recall);
+    return Math.round(Math.max(0, Math.min(100, f1 * 100)));
+}
+async function findSimilarArticles(keyword, title, content, userId, excludeHistoryId) {
+    let articleRows = [];
+    let data = null;
+    let error = null;
+    ({ data, error } = await supabase_1.supabase
+        .from('articles')
+        .select('id,keyword,title,content,url,stance,similarity_score,source,evidence,aggro_reason,published_at,created_at')
+        .ilike('keyword', `%${keyword}%`)
+        .order('created_at', { ascending: false })
+        .limit(350));
+    const errorText = error ? JSON.stringify(error) : '';
+    if (error && (errorText.includes('source') || errorText.includes('evidence'))) {
+        ({ data, error } = await supabase_1.supabase
+            .from('articles')
+            .select('id,keyword,title,content,url,stance,similarity_score,aggro_reason,published_at,created_at')
+            .ilike('keyword', `%${keyword}%`)
+            .order('created_at', { ascending: false })
+            .limit(350));
+    }
+    if (!error) {
+        articleRows = (data ?? []).map((row) => ({
+            ...row,
+            evidence: row.evidence ?? row.aggro_reason,
+            source: row.source ?? parseSource(row.url),
+        }));
+    }
+    const { data: historyData, error: historyError } = await supabase_1.supabase
+        .from('user_analysis_records')
+        .select('id,user_id,keyword,title,content,url,source,stance,similarity_score,evidence,summary,input_type,input_text,created_at')
+        .eq('user_id', userId)
+        .neq('id', excludeHistoryId)
+        .order('created_at', { ascending: false })
+        .limit(200);
+    if (historyError) {
+        throw historyError;
+    }
+    const historyRows = (historyData ?? []).map(mapHistoryRowToArticle);
+    const baseText = `${title} ${content}`;
+    const candidatesMap = new Map();
+    for (const row of articleRows) {
+        candidatesMap.set(`article:${row.id}`, row);
+    }
+    for (const row of historyRows) {
+        candidatesMap.set(`history:${row.id}`, row);
+    }
+    const candidates = Array.from(candidatesMap.values());
+    const scored = candidates
+        .map((row) => {
+        const candidateText = `${row.title} ${row.content ?? ''}`;
+        const matchPercent = computeSimilarityPercent(baseText, candidateText);
+        return {
+            ...row,
+            evidence: row.evidence ?? row.aggro_reason,
+            source: row.source ?? parseSource(row.url),
+            match_percent: matchPercent,
+        };
+    })
+        .filter((row) => row.match_percent >= 12)
+        .sort((a, b) => b.match_percent - a.match_percent);
+    return scored;
+}
+async function analyzeManualArticle(input) {
+    const userId = (0, text_1.normalizeWhitespace)(String(input.userId ?? ''));
+    const rawInput = (0, text_1.normalizeWhitespace)(String(input.input ?? ''));
+    if (!userId) {
+        throw new Error('user_id는 필수입니다.');
+    }
+    if (!rawInput) {
+        throw new Error('분석할 링크 또는 본문을 입력해 주세요.');
+    }
+    const isUrlInput = looksLikeUrl(rawInput);
+    const urlRaw = isUrlInput ? rawInput : '';
+    const contentRaw = isUrlInput ? '' : rawInput;
+    let resolvedContent = contentRaw;
+    let resolvedUrl = urlRaw || createManualUrl();
+    if (!resolvedContent && urlRaw) {
+        try {
+            resolvedContent = (0, text_1.normalizeWhitespace)(await (0, crawlingService_1.fetchArticleContentByUrl)(urlRaw));
+        }
+        catch {
+            throw new LinkAccessBlockedError('링크가 AI 접근을 막아 본문을 가져오지 못했습니다. 기사 본문을 직접 붙여서 분석해 주세요.');
+        }
+    }
+    if (resolvedContent.length < 60) {
+        if (urlRaw) {
+            throw new LinkAccessBlockedError('링크에서 본문 추출이 충분하지 않아 분석할 수 없습니다. 링크가 AI 접근을 막고 있을 수 있습니다. 기사 본문을 붙여 주세요.');
+        }
+        throw new Error('본문 길이가 너무 짧아 분석할 수 없습니다. 최소 60자 이상 입력해 주세요.');
+    }
+    const resolvedTitle = urlRaw ? `사용자 링크 기사 (${parseSource(resolvedUrl)})` : inferTitleFromContent(resolvedContent);
+    const source = urlRaw ? parseSource(resolvedUrl) : 'manual-input';
+    const keyword = extractKeywordFromText(`${resolvedTitle} ${resolvedContent.slice(0, 1800)}`);
+    const analyzed = await (0, aiService_1.analyzeArticle)(keyword, resolvedTitle, resolvedContent);
+    const historyPayload = {
+        id: generateId(),
+        user_id: userId,
+        keyword,
+        title: resolvedTitle,
+        content: resolvedContent,
+        url: resolvedUrl,
+        source,
+        stance: analyzed.stance,
+        similarity_score: analyzed.aggroIndex,
+        evidence: analyzed.evidence,
+        summary: analyzed.summary,
+        input_type: urlRaw ? 'url' : 'content',
+        input_text: rawInput,
+    };
+    const { data: inserted, error: insertError } = await supabase_1.supabase
+        .from('user_analysis_records')
+        .insert(historyPayload)
+        .select('id,user_id,keyword,title,content,url,source,stance,similarity_score,evidence,summary,input_type,input_text,created_at')
+        .single();
+    if (insertError) {
+        throw insertError;
+    }
+    const article = mapHistoryRowToArticle(inserted);
+    const similarArticles = await findSimilarArticles(keyword, article.title, article.content, userId, article.id);
+    const stats = await getStatsByKeyword(keyword);
+    return {
+        keyword,
+        article,
+        similar_articles: similarArticles,
+        stats,
+    };
+}
+async function getUserAnalysisHistory(userId, limit = 50) {
+    const safeLimit = Math.max(1, Math.min(200, Math.floor(limit)));
+    const { data, error } = await supabase_1.supabase
+        .from('user_analysis_records')
+        .select('id,user_id,keyword,title,content,url,source,stance,similarity_score,evidence,summary,input_type,input_text,created_at')
+        .eq('user_id', userId.trim())
+        .order('created_at', { ascending: false })
+        .limit(safeLimit);
+    if (error) {
+        throw error;
+    }
+    return (data ?? []).map(mapHistoryRowToArticle);
+}
+async function clearUserAnalysisHistory(userId) {
+    const value = userId.trim();
+    if (!value) {
+        throw new Error('user_id가 필요합니다.');
+    }
+    await supabase_1.supabase.from('user_analysis_records').delete().eq('user_id', value);
 }
 async function getRecentAnalyzedNews(limit = 50, keyword, cursorCreatedAt, cursorId) {
     const safeLimit = Math.max(1, Math.min(500, Math.floor(limit)));
@@ -354,16 +593,12 @@ function countStance(rows, target) {
 }
 function toBinarySentimentCounts(agree, oppose, neutral, unclassified) {
     const extra = neutral + unclassified;
-    const base = agree + oppose;
     const total = agree + oppose + extra;
     if (total === 0) {
         return { positive: 0, negative: 0 };
     }
-    if (base === 0) {
-        const positive = Math.round(extra / 2);
-        return { positive, negative: total - positive };
-    }
-    const positive = agree + Math.round((extra * agree) / base);
+    // Keep stance counts (agree/oppose) as-is, and split uncertain rows evenly.
+    const positive = agree + Math.round(extra / 2);
     return {
         positive,
         negative: Math.max(0, total - positive),

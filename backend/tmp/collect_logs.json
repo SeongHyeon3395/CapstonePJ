@@ -1,0 +1,29 @@
+[
+  {
+    "timestamp": "2026-04-20T15:39:30.403Z",
+    "source": "scheduler",
+    "keyword": "게임중독",
+    "requestedCount": 1,
+    "addedCount": 1,
+    "status": "success",
+    "message": "1건 수집 완료"
+  },
+  {
+    "timestamp": "2026-04-20T15:35:41.375Z",
+    "source": "scheduler",
+    "keyword": "검찰수사",
+    "requestedCount": 1,
+    "addedCount": 1,
+    "status": "success",
+    "message": "1건 수집 완료"
+  },
+  {
+    "timestamp": "2026-04-20T15:35:18.514Z",
+    "source": "scheduler",
+    "keyword": "건강보험개편",
+    "requestedCount": 1,
+    "addedCount": 1,
+    "status": "success",
+    "message": "1건 수집 완료"
+  }
+]

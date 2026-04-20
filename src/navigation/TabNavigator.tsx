@@ -2,11 +2,13 @@ import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import Ionicons from '@react-native-vector-icons/ionicons';
 import HomeScreen from '../screens/HomeScreen';
+import AnalyzeScreen from '../screens/AnalyzeScreen';
 import HistoryScreen from '../screens/HistoryScreen';
 import SettingsScreen from '../screens/SettingsScreen';
 
 export type TabParamList = {
   Home: undefined;
+  Analyze: undefined;
   History: undefined;
   Settings: undefined;
 };
@@ -14,6 +16,13 @@ export type TabParamList = {
 const Tab = createBottomTabNavigator<TabParamList>();
 
 export default function TabNavigator() {
+  const iconMap: Record<keyof TabParamList, React.ComponentProps<typeof Ionicons>['name']> = {
+    Home: 'home-outline',
+    Analyze: 'flash-outline',
+    History: 'search-outline',
+    Settings: 'person-outline',
+  };
+
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
@@ -21,13 +30,7 @@ export default function TabNavigator() {
         tabBarInactiveTintColor: '#9CA3AF',
         headerShown: false,
         tabBarIcon: ({ color, size }) => {
-          const iconMap: Record<string, string> = {
-            Home: 'home-outline',
-            History: 'search-outline',
-            Settings: 'person-outline',
-          };
-
-          return <Ionicons name={iconMap[route.name] || 'ellipse-outline'} size={size} color={color} />;
+          return <Ionicons name={iconMap[route.name as keyof TabParamList]} size={size} color={color} />;
         },
       })}
     >
@@ -35,6 +38,11 @@ export default function TabNavigator() {
         name="Home" 
         component={HomeScreen}
         options={{ title: '뉴스 분석' }}
+      />
+      <Tab.Screen
+        name="Analyze"
+        component={AnalyzeScreen}
+        options={{ title: '분석하기' }}
       />
       <Tab.Screen 
         name="History" 

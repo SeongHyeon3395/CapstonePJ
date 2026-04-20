@@ -7,6 +7,7 @@ const cors_1 = __importDefault(require("cors"));
 const express_1 = __importDefault(require("express"));
 const env_1 = require("./config/env");
 const newsController_1 = require("./controllers/newsController");
+const authRoutes_1 = require("./routes/authRoutes");
 const chatRoutes_1 = require("./routes/chatRoutes");
 const newsRoutes_1 = require("./routes/newsRoutes");
 const schedulerService_1 = require("./services/schedulerService");
@@ -18,6 +19,7 @@ app.get('/health', (_req, res) => {
 });
 app.get('/api/stats', newsController_1.newsStatsController);
 app.get('/api/analyze', newsController_1.analyzeNewsController);
+app.use('/api/auth', authRoutes_1.authRoutes);
 app.use('/api/news', newsRoutes_1.newsRoutes);
 app.use('/api/chat', chatRoutes_1.chatRoutes);
 app.listen(env_1.env.port, () => {

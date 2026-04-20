@@ -4,8 +4,10 @@ exports.analyzeNewsController = analyzeNewsController;
 exports.newsStatsController = newsStatsController;
 exports.recentNewsController = recentNewsController;
 exports.articleByIdController = articleByIdController;
+exports.manualAnalyzeController = manualAnalyzeController;
+exports.userAnalysisHistoryController = userAnalysisHistoryController;
+exports.clearAnalysisHistoryController = clearAnalysisHistoryController;
 exports.collectLogsController = collectLogsController;
-exports.collectTestRunController = collectTestRunController;
 exports.collectStatusController = collectStatusController;
 exports.collectTriggerController = collectTriggerController;
 const env_1 = require("../config/env");
@@ -91,11 +93,83 @@ async function articleByIdController(req, res) {
         res.status(500).json({ message: '기사 조회 중 오류가 발생했습니다.', detail });
     }
 }
+async function manualAnalyzeController(req, res) {
+    const userId = String(req.body?.user_id ?? req.body?.userId ?? '').trim();
+    const input = String(req.body?.input ?? '').trim();
+    if (!userId) {
+        res.status(400).json({ message: 'user_id가 필요합니다.' });
+        return;
+    }
+    if (!input) {
+        res.status(400).json({ message: '링크 또는 본문 입력(input)이 필요합니다.' });
+        return;
+    }
+    try {
+        const result = await (0, newsService_1.analyzeManualArticle)({ userId, input });
+        res.json(result);
+    }
+    catch (error) {
+        if (error instanceof newsService_1.LinkAccessBlockedError) {
+            res.status(422).json({
+                code: 'LINK_ACCESS_BLOCKED',
+                message: error.message,
+            });
+            return;
+        }
+        const detail = formatErrorDetail(error);
+        res.status(500).json({
+            message: '수동 기사 분석 중 오류가 발생했습니다.',
+            detail,
+        });
+    }
+}
+async function userAnalysisHistoryController(req, res) {
+    const userId = String(req.query.user_id ?? '').trim();
+    const limitRaw = Number(req.query.limit ?? 50);
+    const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(200, Math.floor(limitRaw))) : 50;
+    if (!userId) {
+        res.status(400).json({ message: 'user_id가 필요합니다.' });
+        return;
+    }
+    try {
+        const articles = await (0, newsService_1.getUserAnalysisHistory)(userId, limit);
+        res.json({
+            total: articles.length,
+            articles,
+        });
+    }
+    catch (error) {
+        const detail = formatErrorDetail(error);
+        res.status(500).json({
+            message: '사용자 분석 기록 조회 중 오류가 발생했습니다.',
+            detail,
+        });
+    }
+}
+async function clearAnalysisHistoryController(req, res) {
+    const userId = String(req.query.user_id ?? req.body?.user_id ?? '').trim();
+    if (!userId) {
+        res.status(400).json({ message: 'user_id가 필요합니다.' });
+        return;
+    }
+    try {
+        await (0, newsService_1.clearUserAnalysisHistory)(userId);
+        res.json({ ok: true });
+    }
+    catch (error) {
+        const detail = formatErrorDetail(error);
+        res.status(500).json({
+            message: '분석 기록 초기화 중 오류가 발생했습니다.',
+            detail,
+        });
+    }
+}
 async function collectLogsController(req, res) {
     const limitRaw = Number(req.query.limit ?? 7);
     const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(50, Math.floor(limitRaw))) : 7;
+    const includeManualTest = String(req.query.include_test ?? '').toLowerCase() === 'true';
     try {
-        const logs = (0, collectLogService_1.getCollectLogs)(limit);
+        const logs = (0, collectLogService_1.getCollectLogs)(limit, includeManualTest);
         res.json({
             total: logs.length,
             logs,
@@ -104,22 +178,6 @@ async function collectLogsController(req, res) {
     catch (error) {
         const detail = formatErrorDetail(error);
         res.status(500).json({ message: '수집 로그 조회 중 오류가 발생했습니다.', detail });
-    }
-}
-async function collectTestRunController(req, res) {
-    const countRaw = Number(req.query.count ?? req.body?.count ?? 7);
-    const count = Number.isFinite(countRaw) ? Math.max(1, Math.min(30, Math.floor(countRaw))) : 7;
-    try {
-        const result = await (0, schedulerService_1.runManualCollectTicks)(count, 1);
-        const logs = (0, collectLogService_1.getCollectLogs)(count);
-        res.json({
-            ...result,
-            logs,
-        });
-    }
-    catch (error) {
-        const detail = formatErrorDetail(error);
-        res.status(500).json({ message: '수동 수집 실행 중 오류가 발생했습니다.', detail });
     }
 }
 async function collectStatusController(_req, res) {

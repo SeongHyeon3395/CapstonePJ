@@ -1,10 +1,60 @@
-import React from 'react';
-import { View, Text, FlatList, StyleSheet } from 'react-native';
+import React, { useCallback, useState } from 'react';
+import { View, Text, FlatList, StyleSheet, TouchableOpacity, RefreshControl, Alert } from 'react-native';
 import Ionicons from '@react-native-vector-icons/ionicons';
-import { useNewsStore } from '../store/newsStore';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { Article, getUserManualHistory, resetAllManualHistory } from '../api/newsApi';
+import { useAuthStore } from '../store/authStore';
+import { RootStackParamList } from '../navigation/RootNavigator';
+
+type RootNavigation = NativeStackNavigationProp<RootStackParamList, 'Main'>;
 
 export default function HistoryScreen() {
-  const { searchHistory } = useNewsStore();
+  const navigation = useNavigation<RootNavigation>();
+  const user = useAuthStore((state) => state.user);
+  const [history, setHistory] = useState<Article[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  const loadHistory = useCallback(async () => {
+    if (!user?.id) {
+      setHistory([]);
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const rows = await getUserManualHistory(user.id, 100);
+      setHistory(rows);
+    } finally {
+      setLoading(false);
+    }
+  }, [user?.id]);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadHistory();
+    }, [loadHistory]),
+  );
+
+  const handleClearAll = () => {
+    if (!user?.id) {
+      return;
+    }
+
+    Alert.alert('기록 삭제', '내 분석기록을 모두 삭제할까요?', [
+      { text: '취소', style: 'cancel' },
+      {
+        text: '삭제',
+        style: 'destructive',
+        onPress: async () => {
+          const ok = await resetAllManualHistory(user.id);
+          if (ok) {
+            setHistory([]);
+          }
+        },
+      },
+    ]);
+  };
 
   return (
     <View style={styles.container}>
@@ -16,23 +66,39 @@ export default function HistoryScreen() {
             <Text style={styles.heroSubtitle}>분석 기록</Text>
           </View>
         </View>
+        <TouchableOpacity style={styles.clearButton} onPress={handleClearAll}>
+          <Text style={styles.clearButtonText}>내 기록 전체 삭제</Text>
+        </TouchableOpacity>
       </View>
 
-      {searchHistory.length === 0 ? (
+      {history.length === 0 ? (
         <View style={styles.emptyWrap}>
           <Text style={styles.emptyText}>
-            아직 분석한 이슈가 없습니다
+            저장된 분석 기록이 없습니다
           </Text>
         </View>
       ) : (
         <FlatList
-          data={searchHistory}
-          keyExtractor={(item, index) => `${item}-${index}`}
-          renderItem={({ item }) => (
-            <View style={styles.itemWrap}>
-              <Text style={styles.itemText}>{item}</Text>
-            </View>
-          )}
+          data={history}
+          refreshControl={<RefreshControl refreshing={loading} onRefresh={loadHistory} />}
+          keyExtractor={(item) => item.id}
+          renderItem={({ item }) => {
+            const created = item.created_at ? new Date(item.created_at).toLocaleString('ko-KR') : '';
+            return (
+              <TouchableOpacity
+                style={styles.itemWrap}
+                onPress={() => navigation.navigate('Detail', { keyword: item.keyword, articleId: item.id })}
+              >
+                <View style={styles.itemTopRow}>
+                  <Text style={styles.stanceBadge}>{item.stance}</Text>
+                  <Text style={styles.similarity}>{item.similarity_score}%</Text>
+                </View>
+                <Text style={styles.itemTitle} numberOfLines={2}>{item.title}</Text>
+                <Text style={styles.itemMeta} numberOfLines={1}>{item.source || '출처 미상'}</Text>
+                <Text style={styles.itemDate}>{created}</Text>
+              </TouchableOpacity>
+            );
+          }}
         />
       )}
     </View>
@@ -65,6 +131,21 @@ const styles = StyleSheet.create({
     color: '#DBEAFE',
     fontSize: 14,
   },
+  clearButton: {
+    marginTop: 10,
+    alignSelf: 'flex-start',
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+    borderRadius: 999,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    backgroundColor: '#EFF6FF',
+  },
+  clearButtonText: {
+    color: '#1D4ED8',
+    fontSize: 12,
+    fontWeight: '700',
+  },
   emptyWrap: {
     flex: 1,
     alignItems: 'center',
@@ -73,16 +154,44 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     color: '#9CA3AF',
-    fontSize: 18,
+    fontSize: 16,
     textAlign: 'center',
   },
   itemWrap: {
     padding: 16,
     borderBottomWidth: 1,
     borderBottomColor: '#E5E7EB',
+    backgroundColor: '#FFFFFF',
   },
-  itemText: {
-    fontSize: 16,
-    color: '#1F2937',
+  itemTopRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  stanceBadge: {
+    color: '#1D4ED8',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  similarity: {
+    color: '#475569',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  itemTitle: {
+    marginTop: 6,
+    fontSize: 15,
+    color: '#0F172A',
+    fontWeight: '700',
+  },
+  itemMeta: {
+    marginTop: 4,
+    color: '#64748B',
+    fontSize: 12,
+  },
+  itemDate: {
+    marginTop: 6,
+    color: '#94A3B8',
+    fontSize: 12,
   },
 });

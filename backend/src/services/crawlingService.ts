@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { Readability } from '@mozilla/readability';
 import { JSDOM } from 'jsdom';
+import { env } from '../config/env';
 import { naverApi } from '../config/naver';
 import type { NaverNewsItem } from '../types/news';
 import { normalizeWhitespace, stripHtml } from '../utils/text';
@@ -39,6 +40,10 @@ function parsePressName(url: string): string | undefined {
 }
 
 export async function fetchNaverNews(keyword: string, display = 100, start = 1): Promise<NaverNewsItem[]> {
+  if (!env.hasNaverCredentials) {
+    throw new Error('NAVER_CLIENT_ID/NAVER_CLIENT_SECRET가 설정되지 않아 뉴스 수집을 실행할 수 없습니다. backend/.env를 확인해 주세요.');
+  }
+
   const { data } = await naverApi.get<{ items: NaverNewsItem[] }>('/news.json', {
     params: {
       query: keyword,
@@ -161,6 +166,41 @@ export async function collectNewsLinks(keyword: string, options?: CollectArticle
 
     if (items.length < 100) {
       break;
+    }
+  }
+
+  // Add contrastive query variants so the dataset includes more critical/opposing viewpoints.
+  if (unique.size < targetCount) {
+    const contrastQueries = [
+      `${keyword} 반대`,
+      `${keyword} 비판`,
+      `${keyword} 우려`,
+      `${keyword} 논란`,
+    ];
+
+    for (const query of contrastQueries) {
+      const items = await fetchNaverNews(query, 30, 1);
+      for (const item of items) {
+        const url = item.originallink || item.link;
+        if (!url || unique.has(url)) {
+          continue;
+        }
+
+        if (options?.existingUrls?.has(url)) {
+          continue;
+        }
+
+        const publishedIso = parsePublishedDate(item.pubDate);
+        if (!isAfterThreshold(publishedIso, options?.publishedAfter)) {
+          continue;
+        }
+
+        unique.set(url, item);
+      }
+
+      if (unique.size >= targetCount) {
+        break;
+      }
     }
   }
 

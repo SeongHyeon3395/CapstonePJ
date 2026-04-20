@@ -1,8 +1,17 @@
 import type { Request, Response } from 'express';
 import { env } from '../config/env';
-import { analyzeNewsByKeyword, getArticleById, getRecentAnalyzedNews, getStatsByKeyword } from '../services/newsService';
+import {
+  LinkAccessBlockedError,
+  analyzeManualArticle,
+  analyzeNewsByKeyword,
+  clearUserAnalysisHistory,
+  getArticleById,
+  getRecentAnalyzedNews,
+  getStatsByKeyword,
+  getUserAnalysisHistory,
+} from '../services/newsService';
 import { getCollectLogs } from '../services/collectLogService';
-import { getSchedulerStatus, runExternalCollectOnce, runManualCollectTicks } from '../services/schedulerService';
+import { getSchedulerStatus, runExternalCollectOnce } from '../services/schedulerService';
 
 export async function analyzeNewsController(req: Request, res: Response): Promise<void> {
   const keyword = String(req.query.keyword ?? '').trim();
@@ -87,12 +96,91 @@ export async function articleByIdController(req: Request, res: Response): Promis
   }
 }
 
+export async function manualAnalyzeController(req: Request, res: Response): Promise<void> {
+  const userId = String(req.body?.user_id ?? req.body?.userId ?? '').trim();
+  const input = String(req.body?.input ?? '').trim();
+
+  if (!userId) {
+    res.status(400).json({ message: 'user_id가 필요합니다.' });
+    return;
+  }
+
+  if (!input) {
+    res.status(400).json({ message: '링크 또는 본문 입력(input)이 필요합니다.' });
+    return;
+  }
+
+  try {
+    const result = await analyzeManualArticle({ userId, input });
+    res.json(result);
+  } catch (error) {
+    if (error instanceof LinkAccessBlockedError) {
+      res.status(422).json({
+        code: 'LINK_ACCESS_BLOCKED',
+        message: error.message,
+      });
+      return;
+    }
+
+    const detail = formatErrorDetail(error);
+    res.status(500).json({
+      message: '수동 기사 분석 중 오류가 발생했습니다.',
+      detail,
+    });
+  }
+}
+
+export async function userAnalysisHistoryController(req: Request, res: Response): Promise<void> {
+  const userId = String(req.query.user_id ?? '').trim();
+  const limitRaw = Number(req.query.limit ?? 50);
+  const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(200, Math.floor(limitRaw))) : 50;
+
+  if (!userId) {
+    res.status(400).json({ message: 'user_id가 필요합니다.' });
+    return;
+  }
+
+  try {
+    const articles = await getUserAnalysisHistory(userId, limit);
+    res.json({
+      total: articles.length,
+      articles,
+    });
+  } catch (error) {
+    const detail = formatErrorDetail(error);
+    res.status(500).json({
+      message: '사용자 분석 기록 조회 중 오류가 발생했습니다.',
+      detail,
+    });
+  }
+}
+
+export async function clearAnalysisHistoryController(req: Request, res: Response): Promise<void> {
+  const userId = String(req.query.user_id ?? req.body?.user_id ?? '').trim();
+  if (!userId) {
+    res.status(400).json({ message: 'user_id가 필요합니다.' });
+    return;
+  }
+
+  try {
+    await clearUserAnalysisHistory(userId);
+    res.json({ ok: true });
+  } catch (error) {
+    const detail = formatErrorDetail(error);
+    res.status(500).json({
+      message: '분석 기록 초기화 중 오류가 발생했습니다.',
+      detail,
+    });
+  }
+}
+
 export async function collectLogsController(req: Request, res: Response): Promise<void> {
   const limitRaw = Number(req.query.limit ?? 7);
   const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(50, Math.floor(limitRaw))) : 7;
+  const includeManualTest = String(req.query.include_test ?? '').toLowerCase() === 'true';
 
   try {
-    const logs = getCollectLogs(limit);
+    const logs = getCollectLogs(limit, includeManualTest);
     res.json({
       total: logs.length,
       logs,
@@ -100,23 +188,6 @@ export async function collectLogsController(req: Request, res: Response): Promis
   } catch (error) {
     const detail = formatErrorDetail(error);
     res.status(500).json({ message: '수집 로그 조회 중 오류가 발생했습니다.', detail });
-  }
-}
-
-export async function collectTestRunController(req: Request, res: Response): Promise<void> {
-  const countRaw = Number(req.query.count ?? req.body?.count ?? 7);
-  const count = Number.isFinite(countRaw) ? Math.max(1, Math.min(30, Math.floor(countRaw))) : 7;
-
-  try {
-    const result = await runManualCollectTicks(count, 1);
-    const logs = getCollectLogs(count);
-    res.json({
-      ...result,
-      logs,
-    });
-  } catch (error) {
-    const detail = formatErrorDetail(error);
-    res.status(500).json({ message: '수동 수집 실행 중 오류가 발생했습니다.', detail });
   }
 }
 
