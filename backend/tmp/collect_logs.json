@@ -1,5 +1,32 @@
 [
   {
+    "timestamp": "2026-04-21T03:49:37.508Z",
+    "source": "scheduler",
+    "keyword": "고교학점제",
+    "requestedCount": 1,
+    "addedCount": 1,
+    "status": "success",
+    "message": "1건 수집 완료"
+  },
+  {
+    "timestamp": "2026-04-20T16:32:53.238Z",
+    "source": "scheduler",
+    "keyword": "경제성장률",
+    "requestedCount": 1,
+    "addedCount": 1,
+    "status": "success",
+    "message": "1건 수집 완료"
+  },
+  {
+    "timestamp": "2026-04-20T15:43:37.634Z",
+    "source": "scheduler",
+    "keyword": "경기침체",
+    "requestedCount": 1,
+    "addedCount": 1,
+    "status": "success",
+    "message": "1건 수집 완료"
+  },
+  {
     "timestamp": "2026-04-20T15:39:30.403Z",
     "source": "scheduler",
     "keyword": "게임중독",

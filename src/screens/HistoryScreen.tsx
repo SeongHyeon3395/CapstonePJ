@@ -3,6 +3,7 @@ import { View, Text, FlatList, StyleSheet, TouchableOpacity, RefreshControl, Ale
 import Ionicons from '@react-native-vector-icons/ionicons';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Article, getUserManualHistory, resetAllManualHistory } from '../api/newsApi';
 import { useAuthStore } from '../store/authStore';
 import { RootStackParamList } from '../navigation/RootNavigator';
@@ -11,6 +12,7 @@ type RootNavigation = NativeStackNavigationProp<RootStackParamList, 'Main'>;
 
 export default function HistoryScreen() {
   const navigation = useNavigation<RootNavigation>();
+  const insets = useSafeAreaInsets();
   const user = useAuthStore((state) => state.user);
   const [history, setHistory] = useState<Article[]>([]);
   const [loading, setLoading] = useState(false);
@@ -58,7 +60,7 @@ export default function HistoryScreen() {
 
   return (
     <View style={styles.container}>
-      <View style={styles.heroWrap}>
+      <View style={[styles.heroWrap, { paddingTop: insets.top + 12 }]}>
         <View style={styles.heroRow}>
           <Ionicons name="time-outline" size={18} color="#FFFFFF" />
           <View style={styles.heroTextWrap}>

@@ -47,7 +47,7 @@ function toAuthErrorMessage(error: unknown, fallback: string): string {
     }
 
     if (error.code === 'ERR_NETWORK') {
-      return `백엔드 서버에 연결할 수 없습니다. backend 서버 실행 상태와 API 주소를 확인해 주세요. (현재: ${API_BASE_URL})`;
+      return `백엔드 서버에 연결할 수 없습니다. backend 서버 실행 상태와 API 주소를 확인해 주세요. (현재: ${API_BASE_URL})\nAndroid 실기기 릴리즈라면 adb reverse를 먼저 실행하세요: adb reverse tcp:3000 tcp:3000`;
     }
 
     if (error.code === 'ECONNABORTED') {

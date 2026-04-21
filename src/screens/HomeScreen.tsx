@@ -13,6 +13,7 @@ import {
 import Ionicons from '@react-native-vector-icons/ionicons';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { RootStackParamList } from '../navigation/RootNavigator';
 import NewsCard from '../components/NewsCard';
 import { useNewsStore } from '../store/newsStore';
@@ -23,6 +24,7 @@ type HomeScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'M
 export default function HomeScreen() {
   const PAGE_SIZE = 100;
   const VISIBLE_CHIP_LIMIT = 4;
+  const insets = useSafeAreaInsets();
   const navigation = useNavigation<HomeScreenNavigationProp>();
   const [keyword, setKeyword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -201,7 +203,7 @@ export default function HomeScreen() {
   return (
     <View style={styles.container}>
       {/* Search Bar */}
-      <View style={styles.heroWrap}>
+      <View style={[styles.heroWrap, { paddingTop: insets.top + 12 }]}>
         <View style={styles.brandRow}>
           <Ionicons name="sparkles-outline" size={18} color="#FFFFFF" />
           <View style={styles.brandTextWrap}>

@@ -10,11 +10,13 @@ import {
   TextInput,
 } from 'react-native';
 import Ionicons from '@react-native-vector-icons/ionicons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CollectLogEntry, CollectStatus, getCollectLogs, getCollectStatus } from '../api/newsApi';
 import { updateProfile } from '../api/authApi';
 import { useAuthStore } from '../store/authStore';
 
 export default function SettingsScreen() {
+  const insets = useSafeAreaInsets();
   const user = useAuthStore((state) => state.user);
   const setUser = useAuthStore((state) => state.setUser);
   const logout = useAuthStore((state) => state.logout);
@@ -142,7 +144,7 @@ export default function SettingsScreen() {
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: insets.top + 24 }]}>
         <View style={styles.headerTopRow}>
           {editingProfile ? (
             <View style={styles.profileActionRow}>

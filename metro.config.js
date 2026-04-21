@@ -6,6 +6,16 @@ const { getDefaultConfig, mergeConfig } = require('@react-native/metro-config');
  *
  * @type {import('@react-native/metro-config').MetroConfig}
  */
-const config = {};
+const config = {
+	resolver: {
+		// Prevent Metro from crawling backend/build artifacts in this monorepo.
+		blockList: [
+			/.*[\\/]backend[\\/].*/,
+			/.*[\\/]android[\\/]build[\\/].*/,
+			/.*[\\/]android[\\/]app[\\/]build[\\/].*/,
+			/.*[\\/]ios[\\/]build[\\/].*/,
+		],
+	},
+};
 
 module.exports = mergeConfig(getDefaultConfig(__dirname), config);

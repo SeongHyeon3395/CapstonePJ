@@ -11,6 +11,7 @@ import {
 import Ionicons from '@react-native-vector-icons/ionicons';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useNavigation } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { RootStackParamList } from '../navigation/RootNavigator';
 import {
   analyzeManualNews,
@@ -25,6 +26,7 @@ type RootNavigation = NativeStackNavigationProp<RootStackParamList, 'Main'>;
 
 export default function AnalyzeScreen() {
   const navigation = useNavigation<RootNavigation>();
+  const insets = useSafeAreaInsets();
   const user = useAuthStore((state) => state.user);
 
   const [input, setInput] = useState('');
@@ -76,7 +78,7 @@ export default function AnalyzeScreen() {
   return (
     <View style={styles.container}>
       <ScrollView contentContainerStyle={styles.contentContainer}>
-        <View style={styles.heroWrap}>
+        <View style={[styles.heroWrap, { paddingTop: insets.top + 12 }]}>
           <View style={styles.heroRow}>
             <Ionicons name="flash-outline" size={18} color="#FFFFFF" />
             <View style={styles.heroTextWrap}>
